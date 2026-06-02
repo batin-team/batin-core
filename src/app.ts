@@ -14,10 +14,19 @@ import supportRoutes from './routes/support';
 const app = express();
 
 app.use(cors({
-  origin: [
-    process.env.CLIENT_URL || 'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+  origin: (origin, callback) => {
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      process.env.CORS_ORIGIN,      // e.g. https://hatikehati.vercel.app
+    ].filter(Boolean);
+    // Allow same-origin requests (origin is undefined) and listed origins
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: ${origin} not allowed`));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
