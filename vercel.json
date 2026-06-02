@@ -1,17 +1,23 @@
 {
   "version": 2,
-  "buildCommand": "npm install && npx prisma generate && cd client && npm install && npm run build",
-  "outputDirectory": "client/dist",
-  "installCommand": "npm install",
   "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": "npx prisma generate && cd client && npm install && npm run build",
+  "outputDirectory": "client/dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
     "api/index.ts": {
       "memory": 512,
-      "maxDuration": 10
+      "maxDuration": 30
     }
   }
 }
