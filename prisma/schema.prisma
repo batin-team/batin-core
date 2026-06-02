@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENT
+  PROVIDER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum MembershipType {
+  MEMBER
+  PARTNER
+}
+
+enum ProfessionalType {
+  PSYCHOLOGIST
+  COUNSELOR
+  THERAPIST
+  CONSULTANT
+}
+
+enum VerificationStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  ACTIVE
+  REJECTED
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String
+  role              Role     @default(CLIENT)
+  fullName          String?
+  phone             String?
+  dob               DateTime?
+  gender            String?
+  address           String?
+  emergencyContact  Json?
+  preferredLanguage String?
+  isVerified        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  provider          Provider?
+  appointments      Appointment[] @relation("ClientAppointments")
+  notifications     Notification[]
+  supportTickets    SupportTicket[]
+  auditLogs         AuditLog[]
+  articles          Article[]
+}
+
+model Provider {
+  id                String           @id @default(uuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id])
+  membershipType    MembershipType
+  professionalType  ProfessionalType
+  status            VerificationStatus @default(PENDING)
+  specialties       String[]
+  qualifications    String[]
+  yearsOfExperience Int?
+  languages         String[]
+  bio               String?
+  hourlyRate        Decimal          @db.Decimal(10, 2)
+  rating            Float            @default(0)
+
+  documents         ProviderDocument[]
+  locations         ProviderLocation[]
+  appointments      Appointment[]      @relation("ProviderAppointments")
+}
+
+model ProviderDocument {
+  id         String @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id])
+  type       String
+  s3Key      String
+  status     String @default("PENDING")
+}
+
+model ProviderLocation {
+  id         String @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id])
+  name       String
+  address    String
+  appointments Appointment[]
+}
+
+model BookingLock {
+  id         String   @id @default(uuid())
+  providerId String
+  startTime  DateTime
+  expiresAt  DateTime
+
+  @@unique([providerId, startTime])
+}
+
+model AssessmentResponse {
+  id          String   @id @default(uuid())
+  clientId    String
+  category    String
+  responses   Json
+  score       Int
+  summary     String?
+  isHighRisk  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  appointments Appointment[]
+}
+
+model Appointment {
+  id           String            @id @default(uuid())
+  clientId     String
+  client       User              @relation("ClientAppointments", fields: [clientId], references: [id])
+  providerId   String
+  provider     Provider          @relation("ProviderAppointments", fields: [providerId], references: [id])
+  locationId   String?
+  location     ProviderLocation? @relation(fields: [locationId], references: [id])
+  status       AppointmentStatus @default(PENDING_PAYMENT)
+  startTime    DateTime
+  endTime      DateTime
+  googleEventId String?
+  meetLink     String?
+  assessmentId String?
+  assessment   AssessmentResponse? @relation(fields: [assessmentId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  reviews      Review[]
+  transactions Transaction[]
+}
+
+model Review {
+  id            String      @id @default(uuid())
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  rating        Int
+  comment       String?
+  isAnonymous   Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+}
+
+model Transaction {
+  id            String   @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  amount        Decimal     @db.Decimal(10, 2)
+  status        String
+  provider      String?     // External provider ID/ref
+  createdAt     DateTime    @default(now())
+
+  ledgerEntries LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  type          String      // e.g., "PLATFORM_FEE", "PROVIDER_SHARE"
+  amount        Decimal     @db.Decimal(10, 2)
+  createdAt     DateTime    @default(now())
+}
+
+model PlatformSetting {
+  key   String @id
+  value String
+}
+
+model CorporateInquiry {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  company   String
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model CrisisResource {
+  id          String @id @default(uuid())
+  name        String
+  contactInfo String
+  location    String?
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model CmsCategory {
+  id       String    @id @default(uuid())
+  name     String
+  articles Article[]
+}
+
+model Article {
+  id         String      @id @default(uuid())
+  title      String
+  content    String
+  categoryId String
+  category   CmsCategory @relation(fields: [categoryId], references: [id])
+  authorId   String
+  author     User        @relation(fields: [authorId], references: [id])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model SupportTicket {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  subject   String
+  message   String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
