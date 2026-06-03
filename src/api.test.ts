@@ -42,4 +42,39 @@ describe('API Integration Tests', () => {
     const res = await request(app).get('/health');
     expect(res.statusCode).toEqual(200);
   });
+
+  describe('Auth Controller Input Validation', () => {
+    it('should return 400 if login payload is empty or invalid', async () => {
+      const res1 = await request(app).post('/api/auth/login').send({});
+      expect(res1.statusCode).toEqual(400);
+      expect(res1.body.message).toContain('required');
+
+      const res2 = await request(app).post('/api/auth/login').send({ email: 'test@example.com' });
+      expect(res2.statusCode).toEqual(400);
+      expect(res2.body.message).toContain('required');
+    });
+
+    it('should return 400 if register payload is empty or invalid', async () => {
+      const res1 = await request(app).post('/api/auth/register').send({});
+      expect(res1.statusCode).toEqual(400);
+      expect(res1.body.message).toContain('required');
+
+      const res2 = await request(app).post('/api/auth/register').send({ email: 'test@example.com' });
+      expect(res2.statusCode).toEqual(400);
+      expect(res2.body.message).toContain('required');
+    });
+
+    it('should log in using fallback mock users if database is down', async () => {
+      // Mock db failure
+      (prisma.user.findUnique as jest.Mock).mockRejectedValue(new Error('DB Connection Refused'));
+
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'psychologist@example.com', password: 'password123' });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.message).toContain('Mock login successful');
+      expect(res.body.user.email).toBe('psychologist@example.com');
+    });
+  });
 });

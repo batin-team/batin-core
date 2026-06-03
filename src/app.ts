@@ -20,11 +20,13 @@ app.use(cors({
       'http://localhost:3000',
       process.env.CORS_ORIGIN,      // e.g. https://hatikehati.vercel.app
     ].filter(Boolean);
-    // Allow same-origin requests (origin is undefined) and listed origins
-    if (!origin || allowed.includes(origin)) {
+    
+    // Allow same-origin requests (origin is undefined), listed origins, or any Vercel deployments
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
-      callback(new Error(`CORS: ${origin} not allowed`));
+      // Return false instead of throwing Error to prevent a 500 response on the server
+      callback(null, false);
     }
   },
   credentials: true
@@ -49,9 +51,18 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Global error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled Error:', err);
+  res.status(500).json({
+    message: 'Internal Server Error',
+    error: process.env.NODE_ENV === 'production' ? {} : err.message || err
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
