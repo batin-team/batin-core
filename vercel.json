@@ -1,17 +1,22 @@
 {
   "version": 2,
   "framework": null,
+  "cleanUrls": true,
   "installCommand": "npm install",
   "buildCommand": "npx prisma generate && cd client && npm install && npm run build",
-  "outputDirectory": "client/dist",
+  "outputDirectory": "client/out",
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/index"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/dashboard/client/((?!profile|dummy|.*\\.js|.*\\.css).*)" ,
+      "destination": "/dashboard/client/dummy"
+    },
+    {
+      "source": "/psychologists/((?!dummy|.*\\.js|.*\\.css).*)" ,
+      "destination": "/psychologists/dummy"
     }
   ],
   "functions": {

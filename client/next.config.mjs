@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Configured with local file path alias
+  output: 'export',
+  images: {
+    unoptimized: true,
+  },
 };
 
 export default nextConfig;
