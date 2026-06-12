@@ -4,3 +4,15 @@ node_modules
 /src/generated/prisma
 client/dist
 client/node_modules
+
+# Next.js build output
+client/.next/
+.next/
+
+# TypeScript build info
+*.tsbuildinfo
+client/*.tsbuildinfo
+
+# Build folders
+build/
+dist/

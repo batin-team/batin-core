@@ -6,8 +6,9 @@
   "scripts": {
     "test": "jest",
     "seed": "ts-node prisma/seed.ts",
-    "start": "ts-node src/app.ts",
-    "dev": "ts-node src/app.ts"
+    "start": "ts-node src/index.ts",
+    "dev": "node scripts/kill-ports.js && ts-node src/index.ts",
+    "create-test-session": "ts-node src/create-test-session.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -16,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@hono/node-server": "^1.13.8",
     "@prisma/client": "^6.19.3",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
@@ -27,6 +29,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "hono": "^4.6.10",
     "jsonwebtoken": "^9.0.3",
     "prisma": "^6.19.3",
     "ts-node": "^10.9.2",

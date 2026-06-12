@@ -1,0 +1,1657 @@
+import { serve } from "@hono/node-server";
+import { Context, Hono } from "hono";
+import { cors } from "hono/cors";
+import { formatSlot, type Psychologist } from "./shared";
+import { prisma } from "./db";
+import { createMeetLink } from "./services/google-meet.service";
+import { matchPsychologist } from "./services/matching.service";
+import { createSnapToken, verifyMidtransWebhook } from "./services/midtrans.service";
+import { generateCounselingNotesPdf, generateReceiptPdf } from "./services/pdf.service";
+import { sendBookingConfirmation } from "./services/notification.service";
+import { logAudit } from "./middleware/audit";
+import { RevenueService } from "./services/revenue.service";
+import { AssessmentService } from "./services/assessment.service";
+
+export const app = new Hono();
+export default app;
+
+app.use("*", cors());
+
+async function readObjectBody(c: Context): Promise<Record<string, unknown>> {
+  const body = await c.req.json().catch(() => ({}));
+  return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+}
+
+function toLocalDateString(d: Date) {
+  const localDate = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  return localDate.toISOString().split("T")[0];
+}
+
+function getTimeRangeForSession(scheduledAt: Date, psychologistId: string, slots: any[]): string {
+  const localDateTime = new Date(scheduledAt.getTime() + 7 * 60 * 60 * 1000);
+  const dateStr = localDateTime.toISOString().split("T")[0];
+  const timeStr = localDateTime.toISOString().split("T")[1].substring(0, 5);
+  const dayVal = localDateTime.getUTCDay();
+  const mappedDay = dayVal === 0 ? 7 : dayVal;
+
+  const specific = slots.find(s => 
+    s.psychologistId === psychologistId && 
+    s.specificDate && 
+    toLocalDateString(new Date(s.specificDate)) === dateStr &&
+    s.startTime === timeStr &&
+    !s.isBlocked
+  );
+  if (specific) return `${specific.startTime} - ${specific.endTime}`;
+
+  const recurring = slots.find(s => 
+    s.psychologistId === psychologistId && 
+    !s.specificDate && 
+    s.dayOfWeek === mappedDay &&
+    s.startTime === timeStr
+  );
+  if (recurring) return `${recurring.startTime} - ${recurring.endTime}`;
+
+  if (timeStr === "08:00") return "08:00 - 09:00";
+  if (timeStr === "10:00") return "10:00 - 11:00";
+  if (timeStr === "13:00") return "13:00 - 14:00";
+  if (timeStr === "14:30") return "14:30 - 15:30";
+  if (timeStr === "16:00") return "16:00 - 17:00";
+
+  return `${timeStr} - ${timeStr}`;
+}
+
+
+// Helper to format DB psychologist profiles into the format required by the client & matching engine
+async function getDbPsychologists(): Promise<Psychologist[]> {
+  const list = await prisma.psychologistProfile.findMany({
+    include: {
+      user: true,
+      specializations: {
+        include: {
+          specialization: true
+        }
+      },
+      availabilitySlots: true,
+      sessions: true
+    }
+  });
+
+  return list.map((profile) => {
+    // 1. Gather blocked dates and specific custom slots
+    const blockedDates = new Set<string>(); // "YYYY-MM-DD"
+    const specificSlots = new Set<string>();
+
+    profile.availabilitySlots.forEach((s) => {
+      if (s.isBlocked && s.specificDate) {
+        if (s.isApproved) {
+          blockedDates.add(toLocalDateString(s.specificDate));
+        }
+      } else if (!s.isBlocked && s.specificDate) {
+        const dateStr = toLocalDateString(s.specificDate);
+        const timeRange = `${s.startTime} - ${s.endTime}`;
+        specificSlots.add(`${dateStr}T${timeRange}`);
+      }
+    });
+
+    // 2. Gather recurring weekly template slots
+    const recurringSlots = profile.availabilitySlots.filter((s) => !s.specificDate && s.dayOfWeek);
+
+    // 3. Generate slots for the next 14 days based on weekly template
+    const generatedSlots = new Set<string>();
+    const today = new Date();
+
+    // Add specific custom slots first
+    specificSlots.forEach((s) => generatedSlots.add(s));
+
+    for (let i = 0; i < 14; i++) {
+      const targetDate = new Date();
+      targetDate.setDate(today.getDate() + i);
+      const wibDate = new Date(targetDate.getTime() + 7 * 60 * 60 * 1000);
+      const dayVal = wibDate.getUTCDay(); // Get day of the week in WIB (UTC+7)
+      const mappedDay = dayVal === 0 ? 7 : dayVal; // Convert Sunday to 7
+
+      recurringSlots.forEach((slot) => {
+        if (slot.dayOfWeek === mappedDay) {
+          const dateStr = toLocalDateString(targetDate);
+          const timeRange = `${slot.startTime} - ${slot.endTime}`;
+          const slotKey = `${dateStr}T${timeRange}`;
+          if (!blockedDates.has(dateStr)) {
+            generatedSlots.add(slotKey);
+          }
+        }
+      });
+    }
+
+    // 4. Exclude already booked sessions
+    const bookedSlots = new Set(
+      profile.sessions
+        .filter((s) => s.status !== "CANCELLED")
+        .map((s) => {
+          const localDateTime = new Date(s.scheduledAt.getTime() + 7 * 60 * 60 * 1000);
+          const dateStr = localDateTime.toISOString().split("T")[0];
+          const timeStr = localDateTime.toISOString().split("T")[1].substring(0, 5);
+
+          const dayVal = localDateTime.getUTCDay();
+          const mappedDay = dayVal === 0 ? 7 : dayVal;
+          const slotForDay = profile.availabilitySlots.find((slot) => 
+            slot.dayOfWeek === mappedDay && 
+            !slot.specificDate && 
+            slot.startTime === timeStr
+          );
+          const timeRange = slotForDay ? `${slotForDay.startTime} - ${slotForDay.endTime}` : `${timeStr} - ${timeStr}`;
+          return `${dateStr}T${timeRange}`;
+        })
+    );
+
+    const slots = Array.from(generatedSlots)
+      .filter((slot) => !bookedSlots.has(slot))
+      .sort();
+
+    return {
+      id: profile.id,
+      name: profile.user.fullName,
+      title: profile.bio.split(".")[0] || "Psikolog Klinis",
+      gender: profile.gender === "MALE" ? "MALE" : "FEMALE",
+      avatarUrl: profile.user.avatarUrl || "",
+      bio: profile.bio,
+      experienceYears: profile.experienceYears,
+      specializations: profile.specializations.map((ps) => ps.specialization.name),
+      serviceMode: profile.serviceMode,
+      rating: Number(profile.averageRating),
+      pricePerSession: profile.pricePerSession,
+      nextSlot: slots[0] ? formatSlot(slots[0]) : "Hubungi Admin",
+      homeCity: profile.homeAddress || "",
+      homeLat: Number(profile.homeLat),
+      homeLng: Number(profile.homeLng),
+      availableSlots: slots
+    };
+  });
+}
+
+app.get("/health", (c) => c.json({ status: "ok", service: "mindbridge-api-postgres" }));
+
+app.post("/api/auth/register", async (c) => {
+  const body = await readObjectBody(c);
+  const email = String(body.email || "");
+  const fullName = String(body.fullName || "");
+  const phone = String(body.phone || "");
+  const password = String(body.password || "");
+  const role = body.role === "PSYCHOLOGIST" ? "PSYCHOLOGIST" : "CLIENT";
+
+  if (!email || !fullName || !password) {
+    return c.json({ error: "Email, nama lengkap, dan password wajib diisi" }, 400);
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    return c.json({ error: "Email sudah terdaftar" }, 400);
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      email,
+      fullName,
+      phone,
+      role,
+      passwordHash: password
+    }
+  });
+
+  await logAudit({
+    userId: user.id,
+    action: "USER_REGISTER",
+    entityId: user.id,
+    metadata: { email, fullName, phone, role }
+  }).catch((err) => console.error("Audit log error:", err));
+
+  return c.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      phone: user.phone || undefined,
+      avatarUrl: user.avatarUrl || undefined
+    }
+  }, 201);
+});
+
+app.post("/api/auth/login", async (c) => {
+  const body = await readObjectBody(c);
+  const email = String(body.email || "");
+  const password = String(body.password || "");
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  const isSeedData = user?.passwordHash === "password" && password === "password";
+
+  if (!user || (user.passwordHash !== password && !isSeedData)) {
+    return c.json({ error: "Email atau password salah" }, 401);
+  }
+
+  if (user.isActive === false) {
+    return c.json({ error: "Akun Anda dinonaktifkan. Silakan hubungi admin." }, 403);
+  }
+
+  await logAudit({
+    userId: user.id,
+    action: "USER_LOGIN",
+    entityId: user.id,
+    metadata: { email }
+  }).catch((err) => console.error("Audit log error:", err));
+
+  return c.json({
+    accessToken: "mock-access-token",
+    refreshToken: "mock-refresh-token",
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      phone: user.phone || undefined,
+      avatarUrl: user.avatarUrl || undefined
+    }
+  });
+});
+
+app.get("/api/auth/me", async (c) => {
+  const userId = c.req.header("x-user-id");
+  if (userId) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user) {
+      return c.json({ id: user.id, email: user.email, role: user.role, fullName: user.fullName, phone: user.phone || undefined, avatarUrl: user.avatarUrl || undefined });
+    }
+  }
+  const firstClient = await prisma.user.findFirst({ where: { role: "CLIENT" } });
+  return c.json(
+    firstClient
+      ? { id: firstClient.id, email: firstClient.email, role: firstClient.role, fullName: firstClient.fullName, phone: firstClient.phone || undefined, avatarUrl: undefined }
+      : { id: "usr-client", email: "client@batin.test", role: "CLIENT", fullName: "Client Batin", phone: "08111222333", avatarUrl: undefined }
+  );
+});
+
+app.post("/api/auth/logout", async (c) => {
+  const userId = c.req.header("x-user-id") || null;
+  await logAudit({
+    userId,
+    action: "USER_LOGOUT",
+    entityId: userId,
+    metadata: { userId }
+  }).catch((err) => console.error("Audit log error:", err));
+  return c.json({ ok: true });
+});
+
+app.get("/api/specializations", async (c) => {
+  const list = await prisma.specialization.findMany();
+  return c.json({ data: list.map((s) => s.name) });
+});
+
+app.get("/api/psychologists", async (c) => {
+  const formatted = await getDbPsychologists();
+  return c.json({ data: formatted, pagination: { page: 1, limit: 12, total: formatted.length } });
+});
+
+app.get("/api/psychologists/:id", async (c) => {
+  const id = c.req.param("id");
+  const profile = await prisma.psychologistProfile.findUnique({
+    where: { id },
+    include: {
+      user: true,
+      sessions: {
+        include: {
+          client: true,
+          review: true
+        }
+      }
+    }
+  });
+
+  if (!profile) return c.notFound();
+
+  const formatted = await getDbPsychologists();
+  const matched = formatted.find((p) => p.id === id);
+  if (!matched) return c.notFound();
+
+  // Gather real reviews from sessions
+  const realReviews = profile.sessions
+    .filter((s) => s.review)
+    .map((s) => ({
+      id: s.review!.id,
+      rating: s.review!.rating,
+      comment: s.review!.comment || "Tidak ada komentar.",
+      clientName: s.client.fullName,
+      createdAt: s.review!.createdAt.toISOString()
+    }));
+
+  const dummyReviews = [
+    {
+      id: "dummy-rev-1",
+      rating: 5,
+      comment: "Sangat membantu memahami hal-hal yang membebani dan banyak dapet framework, exercise, dan resource.",
+      clientName: "Nadia P.",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "dummy-rev-2",
+      rating: 5,
+      comment: "Terima kasih kak sudah mendengarkanku, memahami ceritaku, memberikan tips buat regulasi emosi.",
+      clientName: "Sinta M.",
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  return c.json({
+    data: {
+      ...matched,
+      gender: profile.gender,
+      homeAddress: profile.homeAddress,
+      licenseNumber: profile.licenseNumber,
+      reviews: realReviews.length > 0 ? realReviews : dummyReviews
+    }
+  });
+});
+
+app.get("/api/psychologists/:id/slots", async (c) => {
+  const id = c.req.param("id");
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: id, isBlocked: false }
+  });
+  return c.json({
+    data: slots.map((s) => ({
+      id: s.id,
+      psychologistId: s.psychologistId,
+      dayOfWeek: s.dayOfWeek || 5,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      isRecurring: s.isRecurring,
+      specificDate: s.specificDate ? s.specificDate.toISOString() : null
+    }))
+  });
+});
+
+app.post("/api/matching/online", async (c) => {
+  const body = await c.req.json();
+  const list = await getDbPsychologists();
+  return c.json({ data: matchPsychologist(body, "ONLINE", list) });
+});
+
+app.post("/api/matching/offline", async (c) => {
+  const body = await c.req.json();
+  const list = await getDbPsychologists();
+  return c.json({ data: matchPsychologist(body, "OFFLINE", list) });
+});
+
+app.post("/api/sessions", async (c) => {
+  const body = await readObjectBody(c);
+  const sessionType = body.sessionType === "OFFLINE" ? "OFFLINE" : "ONLINE";
+  const clientId = String(body.clientId || c.req.header("x-user-id") || "");
+
+  if (!clientId) {
+    return c.json({ error: "clientId wajib disertakan" }, 400);
+  }
+
+  const clientExists = await prisma.user.findUnique({ where: { id: clientId } });
+  if (!clientExists) {
+    return c.json({ error: "Sesi login tidak valid. Silakan logout dan login kembali." }, 401);
+  }
+
+  const psychologistsList = await getDbPsychologists();
+  const requestedPsychologistId = String(body.psychologistId || "");
+  const matched = psychologistsList.find(p => p.id === requestedPsychologistId) || matchPsychologist(body, sessionType, psychologistsList);
+  const scheduledAt = new Date(String(body.scheduledAt || new Date().toISOString()));
+
+  const session = await prisma.session.create({
+    data: {
+      clientId,
+      psychologistId: matched.id,
+      sessionType,
+      status: "PENDING_PAYMENT",
+      scheduledAt,
+      assignmentMethod: body.assignmentMethod === "SELF_SELECT" ? "SELF_SELECT" : "AUTO_ASSIGN",
+      meetingLocation: body.location ? String(body.location) : null,
+      meetingLat: typeof body.meetingLat === "number" ? body.meetingLat : null,
+      meetingLng: typeof body.meetingLng === "number" ? body.meetingLng : null,
+      clientIssues: Array.isArray(body.selectedSpecializations) ? (body.selectedSpecializations as string[]) : [],
+      clientNotes: body.notes ? String(body.notes) : null,
+      payment: {
+        create: {
+          amount: matched.pricePerSession + 35000,
+          platformFee: 35000,
+          totalAmount: matched.pricePerSession + 35000,
+          status: "PENDING",
+          midtransOrderId: `MB-ORDER-${Date.now()}`
+        }
+      }
+    },
+    include: {
+      payment: true
+    }
+  });
+
+  await logAudit({
+    userId: clientId,
+    action: "CREATE_BOOKING",
+    entityId: session.id,
+    metadata: {
+      psychologistId: matched.id,
+      sessionType,
+      scheduledAt: scheduledAt.toISOString(),
+      assignmentMethod: session.assignmentMethod,
+      amount: matched.pricePerSession + 35000
+    }
+  }).catch((err) => console.error("Audit log error:", err));
+
+  return c.json({
+    data: {
+      id: session.id,
+      status: session.status,
+      psychologist: matched,
+      payment: {
+        orderId: (session as any).payment?.midtransOrderId,
+        amount: (session as any).payment?.totalAmount,
+        snapToken: `mock-snap-token-${session.id}`,
+        redirectUrl: `https://app.sandbox.midtrans.com/snap/v2/vtweb/mock-${session.id}`
+      }
+    }
+  }, 201);
+});
+
+app.get("/api/sessions", async (c) => {
+  const list = await prisma.session.findMany({
+    include: {
+      client: true,
+      psychologist: { include: { user: true } },
+      payment: true
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  const formatted = list.map((s) => ({
+    id: s.id,
+    clientName: s.client.fullName,
+    psychologistId: s.psychologistId,
+    psychologistName: s.psychologist.user.fullName,
+    psychologistTitle: s.psychologist.bio.split(".")[0],
+    sessionType: s.sessionType,
+    status: s.status,
+    scheduledAt: s.scheduledAt.toISOString(),
+    amount: s.payment?.totalAmount ?? 0,
+    meetUrl: s.googleMeetUrl || undefined,
+    location: s.meetingLocation || undefined
+  }));
+
+  return c.json({ data: formatted });
+});
+
+app.get("/api/sessions/:id", async (c) => {
+  const id = c.req.param("id");
+  const s = await prisma.session.findUnique({
+    where: { id },
+    include: {
+      client: true,
+      psychologist: { include: { user: true } },
+      payment: true
+    }
+  });
+
+  if (!s) return c.notFound();
+
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: s.psychologistId }
+  });
+
+  return c.json({
+    data: {
+      id: s.id,
+      clientName: s.client.fullName,
+      psychologistId: s.psychologistId,
+      psychologistName: s.psychologist.user.fullName,
+      psychologistTitle: s.psychologist.bio.split(".")[0],
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      meetUrl: s.googleMeetUrl || undefined,
+      location: s.meetingLocation || undefined,
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }
+  });
+});
+
+app.patch("/api/sessions/:id/cancel", async (c) => {
+  const id = c.req.param("id");
+  const updated = await prisma.session.update({
+    where: { id },
+    data: { status: "CANCELLED" }
+  });
+  return c.json({ data: { id: updated.id, status: updated.status } });
+});
+
+app.post("/api/payments/initiate", async (c) => {
+  const body = await readObjectBody(c);
+  return c.json({
+    data: await createSnapToken({
+      amount: typeof body.amount === "number" ? body.amount : 385000,
+      orderId: typeof body.orderId === "string" ? body.orderId : `MB-ORDER-${Date.now()}`
+    })
+  });
+});
+
+app.post("/api/payments/webhook", async (c) => {
+  const payload = await c.req.json();
+  const result = verifyMidtransWebhook(payload);
+
+  if (result.status === "SUCCESS") {
+    // Find payment record
+    const payment = await prisma.payment.findFirst({
+      where: { midtransOrderId: payload.order_id || "" },
+      include: { session: true }
+    });
+
+    if (payment) {
+      const meet = await createMeetLink({ sessionId: payment.sessionId });
+
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: "SUCCESS",
+            paidAt: new Date(),
+            paymentMethod: payload.payment_type || "credit_card",
+            midtransTransactionId: payload.transaction_id || null
+          }
+        }),
+        prisma.session.update({
+          where: { id: payment.sessionId },
+          data: {
+            status: "CONFIRMED",
+            googleMeetUrl: meet.meetUrl
+          }
+        })
+      ]);
+
+      // Record splits and ledger entries
+      await RevenueService.recordTransactionAndSplits(payment.sessionId).catch((err) => {
+        console.error("Failed to record split transaction:", err);
+      });
+
+      // Audit log
+      await logAudit({
+        userId: payment.session.clientId,
+        action: "PAYMENT_SUCCESS",
+        entityId: payment.id,
+        metadata: { orderId: payload.order_id, amount: payment.totalAmount }
+      }).catch((err) => console.error("Audit log error:", err));
+
+      await sendBookingConfirmation({ sessionId: payment.sessionId, meetUrl: meet.meetUrl });
+      return c.json({ payment: result, meet, sessionStatus: "CONFIRMED" });
+    }
+  }
+
+  return c.json({ payment: result });
+});
+
+app.get("/api/payments/:sessionId", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const payment = await prisma.payment.findUnique({
+    where: { sessionId }
+  });
+
+  return c.json({
+    data: {
+      sessionId,
+      status: payment?.status || "PENDING",
+      totalAmount: payment?.totalAmount || 385000
+    }
+  });
+});
+
+app.get("/api/payments/:sessionId/receipt", (c) => c.json({ data: generateReceiptPdf(c.req.param("sessionId")) }));
+
+app.post("/api/google-meet/create", async (c) => c.json({ data: await createMeetLink(await c.req.json()) }));
+
+app.get("/api/sessions/:id/attendance", async (c) => {
+  const id = c.req.param("id");
+  const attendance = await prisma.sessionAttendance.findUnique({
+    where: { sessionId: id }
+  });
+  return c.json({
+    data: {
+      sessionId: id,
+      clientAttended: attendance?.clientAttended ?? true,
+      notes: attendance?.notes || "",
+      actualStartTime: attendance?.actualStartTime ? attendance.actualStartTime.toISOString() : "",
+      actualEndTime: attendance?.actualEndTime ? attendance.actualEndTime.toISOString() : "",
+      evidencePhotoUrl: attendance?.evidencePhotoUrl || "",
+      exists: !!attendance
+    }
+  });
+});
+
+async function checkAndUpdateSessionCompletion(sessionId: string) {
+  const [attendance, notes] = await Promise.all([
+    prisma.sessionAttendance.findUnique({ where: { sessionId } }),
+    prisma.sessionNotes.findUnique({ where: { sessionId } })
+  ]);
+
+  if (attendance && notes) {
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { status: "COMPLETED" }
+    });
+  }
+}
+
+app.post("/api/sessions/:id/attendance", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const created = await prisma.sessionAttendance.create({
+    data: {
+      sessionId: id,
+      clientAttended: body.clientAttended === false ? false : true,
+      notes: body.notes ? String(body.notes) : null,
+      actualStartTime: body.actualStartTime ? new Date(String(body.actualStartTime)) : null,
+      actualEndTime: body.actualEndTime ? new Date(String(body.actualEndTime)) : null,
+      evidencePhotoUrl: body.evidencePhotoUrl ? String(body.evidencePhotoUrl) : null,
+      submittedAt: new Date()
+    }
+  });
+  await checkAndUpdateSessionCompletion(id);
+  return c.json({ data: { sessionId: id, id: created.id } }, 201);
+});
+
+app.patch("/api/sessions/:id/attendance", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const updated = await prisma.sessionAttendance.update({
+    where: { sessionId: id },
+    data: {
+      clientAttended: body.clientAttended === false ? false : true,
+      notes: body.notes ? String(body.notes) : null,
+      actualStartTime: body.actualStartTime ? new Date(String(body.actualStartTime)) : null,
+      actualEndTime: body.actualEndTime ? new Date(String(body.actualEndTime)) : null,
+      evidencePhotoUrl: body.evidencePhotoUrl ? String(body.evidencePhotoUrl) : null
+    }
+  });
+  await checkAndUpdateSessionCompletion(id);
+  return c.json({ data: { sessionId: id, id: updated.id } });
+});
+
+app.get("/api/sessions/:id/notes", async (c) => {
+  const id = c.req.param("id");
+  const userId = c.req.header("x-user-id");
+  const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+
+  const notes = await prisma.sessionNotes.findUnique({
+    where: { sessionId: id }
+  });
+
+  if (user?.role === "CLIENT") {
+    if (!notes || !notes.isSentToClient) {
+      return c.json({ error: "Catatan belum dibagikan atau dikirim oleh psikolog." }, 400);
+    }
+  }
+
+  return c.json({
+    data: {
+      sessionId: id,
+      chiefComplaint: notes?.chiefComplaint || (user?.role === "CLIENT" ? "" : "kecemasan terkait pekerjaan dan kualitas tidur."),
+      assessmentObservation: notes?.assessmentObservation || (user?.role === "CLIENT" ? "" : "client kooperatif, insight baik, afek cemas ringan."),
+      interventions: notes?.interventions || (user?.role === "CLIENT" ? "" : "psikoedukasi, breathing exercise, dan reframing pikiran otomatis."),
+      followUpPlan: notes?.followUpPlan || (user?.role === "CLIENT" ? "" : "jurnal tidur dan sesi lanjutan 1 minggu."),
+      recommendations: notes?.recommendations || (user?.role === "CLIENT" ? "" : "Latihan pernapasan 3x sehari."),
+      exists: !!notes,
+      isSentToClient: notes?.isSentToClient ?? false
+    }
+  });
+});
+
+app.post("/api/sessions/:id/notes", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const created = await prisma.sessionNotes.create({
+    data: {
+      sessionId: id,
+      chiefComplaint: String(body.chiefComplaint || ""),
+      assessmentObservation: String(body.assessmentObservation || ""),
+      interventions: String(body.interventions || ""),
+      followUpPlan: String(body.followUpPlan || ""),
+      recommendations: String(body.recommendations || "")
+    }
+  });
+  await checkAndUpdateSessionCompletion(id);
+  return c.json({ data: { sessionId: id, id: created.id } }, 201);
+});
+
+app.patch("/api/sessions/:id/notes", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const updated = await prisma.sessionNotes.update({
+    where: { sessionId: id },
+    data: {
+      chiefComplaint: body.chiefComplaint ? String(body.chiefComplaint) : undefined,
+      assessmentObservation: body.assessmentObservation ? String(body.assessmentObservation) : undefined,
+      interventions: body.interventions ? String(body.interventions) : undefined,
+      followUpPlan: body.followUpPlan ? String(body.followUpPlan) : undefined,
+      recommendations: body.recommendations ? String(body.recommendations) : undefined
+    }
+  });
+  await checkAndUpdateSessionCompletion(id);
+  return c.json({ data: { sessionId: id, id: updated.id } });
+});
+
+app.post("/api/sessions/:id/notes/send", async (c) => {
+  const id = c.req.param("id");
+  await prisma.sessionNotes.update({
+    where: { sessionId: id },
+    data: { isSentToClient: true }
+  });
+  return c.json({ data: { sessionId: id, isSentToClient: true } });
+});
+
+app.get("/api/sessions/:id/notes/download", (c) => c.json({ data: generateCounselingNotesPdf(c.req.param("id")) }));
+
+app.get("/api/psychologist/profile", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const profile = userId
+    ? await prisma.psychologistProfile.findFirst({
+        where: { userId },
+        include: {
+          user: true,
+          sessions: {
+            include: { client: true },
+            where: { status: { not: "CANCELLED" } }
+          },
+          availabilitySlots: true
+        }
+      })
+    : await prisma.psychologistProfile.findFirst({
+        include: {
+          user: true,
+          sessions: {
+            include: { client: true },
+            where: { status: { not: "CANCELLED" } }
+          },
+          availabilitySlots: true
+        }
+      });
+
+  if (!profile) return c.json({ data: null });
+
+  // 1. Gather blocked dates and specific custom slots
+  const blockedDates = new Set<string>(); // "YYYY-MM-DD"
+  const specificSlots = new Set<string>();
+
+  profile.availabilitySlots.forEach((s) => {
+    if (s.isBlocked && s.specificDate) {
+      if (s.isApproved) {
+        blockedDates.add(toLocalDateString(s.specificDate));
+      }
+    } else if (!s.isBlocked && s.specificDate) {
+      const dateStr = toLocalDateString(s.specificDate);
+      const timeRange = `${s.startTime} - ${s.endTime}`;
+      specificSlots.add(`${dateStr}T${timeRange}`);
+    }
+  });
+
+  // 2. Gather recurring weekly template slots
+  const recurringSlots = profile.availabilitySlots.filter((s) => !s.specificDate && s.dayOfWeek);
+
+  // 3. Generate slots for the next 14 days based on weekly template
+  const generatedSlots = new Set<string>();
+  const today = new Date();
+
+  // Add specific custom slots first
+  specificSlots.forEach((s) => generatedSlots.add(s));
+
+  for (let i = 0; i < 14; i++) {
+    const targetDate = new Date();
+    targetDate.setDate(today.getDate() + i);
+    const wibDate = new Date(targetDate.getTime() + 7 * 60 * 60 * 1000);
+    const dayVal = wibDate.getUTCDay(); // Get day of the week in WIB (UTC+7)
+    const mappedDay = dayVal === 0 ? 7 : dayVal;
+
+    recurringSlots.forEach((slot) => {
+      if (slot.dayOfWeek === mappedDay) {
+        const dateStr = toLocalDateString(targetDate);
+        const timeRange = `${slot.startTime} - ${slot.endTime}`;
+        const slotKey = `${dateStr}T${timeRange}`;
+        if (!blockedDates.has(dateStr)) {
+          generatedSlots.add(slotKey);
+        }
+      }
+    });
+  }
+
+  // 4. Construct slots with status
+  const sortedSlotKeys = Array.from(generatedSlots).sort();
+  const slotsWithStatus = sortedSlotKeys.map((slotKey) => {
+    const matchedSession = profile.sessions.find((s) => {
+      const localDateTime = new Date(s.scheduledAt.getTime() + 7 * 60 * 60 * 1000);
+      const dateStr = localDateTime.toISOString().split("T")[0];
+      const timeStr = localDateTime.toISOString().split("T")[1].substring(0, 5);
+
+      const dayVal = localDateTime.getUTCDay();
+      const mappedDay = dayVal === 0 ? 7 : dayVal;
+      const slotForDay = profile.availabilitySlots.find((slot) => 
+        slot.dayOfWeek === mappedDay && 
+        !slot.specificDate && 
+        slot.startTime === timeStr
+      );
+      const timeRange = slotForDay ? `${slotForDay.startTime} - ${slotForDay.endTime}` : `${timeStr} - ${timeStr}`;
+      const sessionKey = `${dateStr}T${timeRange}`;
+      return sessionKey === slotKey;
+    });
+
+    if (matchedSession) {
+      return {
+        slotKey,
+        status: "BOOKED",
+        clientName: matchedSession.client.fullName,
+        sessionId: matchedSession.id
+      };
+    }
+
+    return {
+      slotKey,
+      status: "AVAILABLE"
+    };
+  });
+
+  const formatted = await getDbPsychologists();
+  const matchedProfile = formatted.find(p => p.id === profile.id) || formatted[0];
+
+  return c.json({
+    data: {
+      ...matchedProfile,
+      licenseNumber: profile.licenseNumber,
+      homeAddress: profile.homeAddress,
+      slotsWithStatus,
+      blockedDates: Array.from(blockedDates),
+      leaves: profile.availabilitySlots
+        .filter((s) => s.isBlocked && s.specificDate)
+        .map((s) => ({
+          id: s.id,
+          date: toLocalDateString(s.specificDate!),
+          isApproved: s.isApproved
+        }))
+    }
+  });
+});
+
+app.patch("/api/psychologist/profile", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const body = await readObjectBody(c);
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : await prisma.psychologistProfile.findFirst();
+  if (profile) {
+    // 1. Update User fields (fullName, avatarUrl)
+    await prisma.user.update({
+      where: { id: profile.userId },
+      data: {
+        fullName: body.fullName !== undefined ? String(body.fullName) : undefined,
+        avatarUrl: body.avatarUrl !== undefined ? String(body.avatarUrl || "") : undefined
+      }
+    });
+
+    // 2. Update PsychologistProfile fields
+    const updated = await prisma.psychologistProfile.update({
+      where: { id: profile.id },
+      data: {
+        bio: body.bio !== undefined ? String(body.bio) : undefined,
+        licenseNumber: body.licenseNumber !== undefined ? String(body.licenseNumber) : undefined,
+        experienceYears: typeof body.experienceYears === "number" ? body.experienceYears : (body.experienceYears ? Number(body.experienceYears) : undefined),
+        gender: body.gender !== undefined ? (body.gender as any) : undefined,
+        serviceMode: body.serviceMode !== undefined ? (body.serviceMode as any) : undefined,
+        pricePerSession: typeof body.pricePerSession === "number" ? body.pricePerSession : (body.pricePerSession ? Number(body.pricePerSession) : undefined),
+        homeAddress: body.homeAddress !== undefined ? String(body.homeAddress) : undefined
+      }
+    });
+
+    // 3. Update specializations if passed
+    if (Array.isArray(body.specializations)) {
+      await prisma.psychologistSpecialization.deleteMany({
+        where: { psychologistId: profile.id }
+      });
+      const specs = await prisma.specialization.findMany({
+        where: { name: { in: body.specializations } }
+      });
+      await prisma.psychologistSpecialization.createMany({
+        data: specs.map((spec) => ({
+          psychologistId: profile.id,
+          specializationId: spec.id
+        }))
+      });
+    }
+
+    await logAudit({
+      userId: userId || profile.userId,
+      action: "UPDATE_PROVIDER_PROFILE",
+      entityId: profile.id,
+      metadata: body
+    }).catch((err) => console.error("Audit log error:", err));
+
+    return c.json({ data: updated });
+  }
+  return c.notFound();
+});
+
+app.patch("/api/client/profile", async (c) => {
+  const userId = c.req.header("x-user-id");
+  if (!userId) {
+    return c.json({ error: "Sesi login tidak valid" }, 401);
+  }
+  const body = await readObjectBody(c);
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      fullName: body.fullName ? String(body.fullName) : undefined,
+      email: body.email ? String(body.email) : undefined,
+      phone: body.phone !== undefined ? String(body.phone || "") : undefined,
+      avatarUrl: body.avatarUrl !== undefined ? String(body.avatarUrl || "") : undefined,
+    }
+  });
+
+  await logAudit({
+    userId,
+    action: "UPDATE_CLIENT_PROFILE",
+    entityId: userId,
+    metadata: body
+  }).catch((err) => console.error("Audit log error:", err));
+
+  return c.json({
+    data: {
+      id: updated.id,
+      email: updated.email,
+      fullName: updated.fullName,
+      phone: updated.phone || undefined,
+      avatarUrl: updated.avatarUrl || undefined,
+      role: updated.role
+    }
+  });
+});
+
+app.get("/api/psychologist/slots", async (c) => {
+  const userId = c.req.header("x-user-id");
+  console.log("[DEBUG GET SLOTS] x-user-id header:", userId);
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : await prisma.psychologistProfile.findFirst();
+  console.log("[DEBUG GET SLOTS] Profile found:", profile ? profile.id : "NULL");
+  if (profile) {
+    const slots = await prisma.availabilitySlot.findMany({
+      where: { psychologistId: profile.id }
+    });
+    return c.json({
+      data: slots.map((s) => ({
+        id: s.id,
+        dayOfWeek: s.dayOfWeek || 5,
+        startTime: s.startTime,
+        endTime: s.endTime
+      }))
+    });
+  }
+  return c.json({ data: [] });
+});
+
+app.post("/api/psychologist/slots", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const body = await readObjectBody(c);
+  console.log("[DEBUG POST SLOT] x-user-id header:", userId);
+  console.log("[DEBUG POST SLOT] Request body:", body);
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : await prisma.psychologistProfile.findFirst();
+  console.log("[DEBUG POST SLOT] Profile found:", profile ? profile.id : "NULL");
+  if (profile) {
+    const slot = await prisma.availabilitySlot.create({
+      data: {
+        psychologistId: profile.id,
+        dayOfWeek: typeof body.dayOfWeek === "number" ? body.dayOfWeek : 5,
+        startTime: String(body.startTime || "09:00"),
+        endTime: String(body.endTime || "10:00"),
+        isRecurring: true
+      }
+    });
+    return c.json({ data: slot }, 201);
+  }
+  return c.notFound();
+});
+
+app.patch("/api/psychologist/slots/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const updated = await prisma.availabilitySlot.update({
+    where: { id },
+    data: {
+      startTime: body.startTime ? String(body.startTime) : undefined,
+      endTime: body.endTime ? String(body.endTime) : undefined
+    }
+  });
+  return c.json({ data: updated });
+});
+
+app.delete("/api/psychologist/slots/:id", async (c) => {
+  const id = c.req.param("id");
+  await prisma.availabilitySlot.delete({ where: { id } });
+  return c.json({ ok: true, id });
+});
+
+app.post("/api/psychologist/slots/block", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const body = await readObjectBody(c);
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : await prisma.psychologistProfile.findFirst();
+  if (profile) {
+    const blocked = await prisma.availabilitySlot.create({
+      data: {
+        psychologistId: profile.id,
+        specificDate: new Date(String(body.date || new Date().toISOString())),
+        startTime: "00:00",
+        endTime: "23:59",
+        isBlocked: true,
+        isRecurring: false,
+        isApproved: false
+      }
+    });
+    return c.json({ data: blocked }, 201);
+  }
+  return c.notFound();
+});
+
+app.get("/api/psychologist/sessions", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : null;
+  if (!profile) return c.json({ data: [] });
+
+  const [list, slots] = await Promise.all([
+    prisma.session.findMany({
+      where: { psychologistId: profile.id },
+      include: {
+        client: true,
+        payment: true,
+        notes: true,
+        attendance: true
+      },
+      orderBy: { scheduledAt: "desc" }
+    }),
+    prisma.availabilitySlot.findMany({
+      where: { psychologistId: profile.id }
+    })
+  ]);
+
+  return c.json({
+    data: list.map((s) => ({
+      id: s.id,
+      clientName: s.client.fullName,
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      location: s.meetingLocation || undefined,
+      meetUrl: s.googleMeetUrl || undefined,
+      clientIssues: s.clientIssues,
+      clientNotes: s.clientNotes || undefined,
+      hasNotes: !!s.notes,
+      hasAttendance: !!s.attendance,
+      createdAt: s.createdAt.toISOString(),
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }))
+  });
+});
+
+app.get("/api/psychologist/sessions/today", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : null;
+  if (!profile) return c.json({ data: [] });
+
+  const now = new Date();
+  const localTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const startOfDay = new Date(Date.UTC(localTime.getUTCFullYear(), localTime.getUTCMonth(), localTime.getUTCDate(), 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(localTime.getUTCFullYear(), localTime.getUTCMonth(), localTime.getUTCDate(), 23, 59, 59));
+
+  const startUtc = new Date(startOfDay.getTime() - 7 * 60 * 60 * 1000);
+  const endUtc = new Date(endOfDay.getTime() - 7 * 60 * 60 * 1000);
+
+  const [list, slots] = await Promise.all([
+    prisma.session.findMany({
+      where: {
+        psychologistId: profile.id,
+        scheduledAt: {
+          gte: startUtc,
+          lte: endUtc
+        }
+      },
+      include: {
+        client: true,
+        payment: true,
+        notes: true,
+        attendance: true
+      },
+      orderBy: { scheduledAt: "asc" }
+    }),
+    prisma.availabilitySlot.findMany({
+      where: { psychologistId: profile.id }
+    })
+  ]);
+
+  return c.json({
+    data: list.map((s) => ({
+      id: s.id,
+      clientName: s.client.fullName,
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      location: s.meetingLocation || undefined,
+      meetUrl: s.googleMeetUrl || undefined,
+      clientIssues: s.clientIssues,
+      clientNotes: s.clientNotes || undefined,
+      hasNotes: !!s.notes,
+      hasAttendance: !!s.attendance,
+      createdAt: s.createdAt.toISOString(),
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }))
+  });
+});
+
+app.get("/api/psychologist/sessions/:id", async (c) => {
+  const id = c.req.param("id");
+  const s = await prisma.session.findUnique({
+    where: { id },
+    include: { client: true, payment: true, notes: true, attendance: true }
+  });
+  if (!s) return c.notFound();
+
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: s.psychologistId }
+  });
+
+  return c.json({
+    data: {
+      id: s.id,
+      clientName: s.client.fullName,
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      meetUrl: s.googleMeetUrl || undefined,
+      location: s.meetingLocation || undefined,
+      clientIssues: s.clientIssues,
+      clientNotes: s.clientNotes || undefined,
+      hasNotes: !!s.notes,
+      hasAttendance: !!s.attendance,
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }
+  });
+});
+
+app.get("/api/client/sessions", async (c) => {
+  const clientId = c.req.query("clientId") || c.req.header("x-user-id");
+
+  const whereClause = clientId ? { clientId } : {};
+  const list = await prisma.session.findMany({
+    where: whereClause,
+    include: {
+      psychologist: { include: { user: true } },
+      payment: true
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  const psychologistIds = Array.from(new Set(list.map(s => s.psychologistId)));
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: { in: psychologistIds } }
+  });
+
+  return c.json({
+    data: list.map((s) => ({
+      id: s.id,
+      clientName: s.clientIssues.join(", ") || "Konseling",
+      psychologistId: s.psychologistId,
+      psychologistName: s.psychologist.user.fullName,
+      psychologistTitle: s.psychologist.bio.split(".")[0],
+      psychologistAvatar: s.psychologist.user.avatarUrl || "",
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      meetUrl: s.googleMeetUrl || undefined,
+      location: s.meetingLocation || undefined,
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }))
+  });
+});
+
+app.get("/api/client/sessions/:id", async (c) => {
+  const id = c.req.param("id");
+  const s = await prisma.session.findUnique({
+    where: { id },
+    include: {
+      psychologist: { include: { user: true } },
+      payment: true,
+      notes: true,
+      review: true,
+      attendance: true
+    }
+  });
+
+  if (!s) return c.notFound();
+
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: s.psychologistId }
+  });
+
+  return c.json({
+    data: {
+      id: s.id,
+      clientName: s.clientIssues.join(", ") || "Konseling",
+      psychologistId: s.psychologistId,
+      psychologistName: s.psychologist.user.fullName,
+      psychologistTitle: s.psychologist.bio.split(".")[0],
+      psychologistAvatar: s.psychologist.user.avatarUrl || "",
+      sessionType: s.sessionType,
+      status: s.status,
+      scheduledAt: s.scheduledAt.toISOString(),
+      amount: s.payment?.totalAmount ?? 0,
+      meetUrl: s.googleMeetUrl || undefined,
+      location: s.meetingLocation || undefined,
+      hasNotes: !!s.notes,
+      hasAttendance: !!s.attendance,
+      notesSent: s.notes ? s.notes.isSentToClient : false,
+      review: s.review ? { rating: s.review.rating, comment: s.review.comment } : null,
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots),
+      paymentOrderId: s.payment?.midtransOrderId || null,
+      assignmentMethod: s.assignmentMethod
+    }
+  });
+});
+
+app.get("/api/client/sessions/:id/receipt", (c) => c.json({ data: generateReceiptPdf(c.req.param("id")) }));
+app.get("/api/client/sessions/:id/notes", (c) => c.json({ data: generateCounselingNotesPdf(c.req.param("id")) }));
+
+app.post("/api/client/sessions/:id/review", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const session = await prisma.session.findUnique({ where: { id } });
+
+  if (session) {
+    // Check if session is completed (has both notes and attendance record)
+    const [attendance, notes] = await Promise.all([
+      prisma.sessionAttendance.findUnique({ where: { sessionId: id } }),
+      prisma.sessionNotes.findUnique({ where: { sessionId: id } })
+    ]);
+
+    if (!attendance || !notes) {
+      return c.json({ error: "Ulasan baru dapat diberikan apabila jadwal konseling selesai dilaksanakan (dengan adanya catatan dari psikolog dan absensi kehadirannya terlebih dahulu)." }, 400);
+    }
+
+    const review = await prisma.review.create({
+      data: {
+        sessionId: id,
+        clientId: session.clientId,
+        psychologistId: session.psychologistId,
+        rating: typeof body.rating === "number" ? body.rating : 5,
+        comment: body.comment ? String(body.comment) : null
+      }
+    });
+
+    // Recalculate average rating for this psychologist
+    const allReviews = await prisma.review.findMany({
+      where: { psychologistId: session.psychologistId }
+    });
+    const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
+    const avgRating = allReviews.length > 0 ? (totalRating / allReviews.length) : 0;
+
+    await prisma.psychologistProfile.update({
+      where: { id: session.psychologistId },
+      data: { averageRating: avgRating }
+    });
+
+    return c.json({ data: review }, 201);
+  }
+  return c.notFound();
+});
+
+// B2B Inquiry Route
+app.post("/api/corporate/inquiry", async (c) => {
+  const body = await readObjectBody(c);
+  const name = String(body.name || "");
+  const email = String(body.email || "");
+  const company = String(body.company || "");
+  const message = String(body.message || "");
+
+  if (!name || !email || !company || !message) {
+    return c.json({ error: "Semua field wajib diisi" }, 400);
+  }
+
+  const inquiry = await prisma.corporateInquiry.create({
+    data: { name, email, company, message }
+  });
+
+  return c.json({ data: inquiry }, 201);
+});
+
+app.post("/api/assessments", async (c) => {
+  const body = await readObjectBody(c);
+  const clientId = String(body.clientId || c.req.header("x-user-id") || "");
+  const category = String(body.category || "General");
+  const responses = (body.responses || {}) as Record<string, number>;
+
+  if (!clientId) {
+    return c.json({ error: "clientId wajib disertakan" }, 400);
+  }
+
+  try {
+    const result = await AssessmentService.submitAssessment(clientId, category, responses);
+    const crisisResources = result.isHighRisk ? await AssessmentService.getCrisisResources() : [];
+    return c.json({ data: result, crisisResources }, 201);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get("/api/crisis-resources", async (c) => {
+  try {
+    const resources = await AssessmentService.getCrisisResources();
+    return c.json({ data: resources });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ─── ADMIN ENDPOINTS ─────────────────────────────────────────────────────────
+
+app.get("/api/admin/stats/monthly", async (c) => {
+  const year = Number(c.req.query("year") || new Date().getFullYear());
+  const month = Number(c.req.query("month") || (new Date().getMonth() + 1));
+  try {
+    const stats = await RevenueService.getMonthlyStats(year, month);
+    return c.json({ data: stats });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get("/api/admin/stats", async (c) => {
+  const [userCount, psychCount, sessionCount, revenueAgg, pendingVerif] = await Promise.all([
+    prisma.user.count(),
+    prisma.psychologistProfile.count(),
+    prisma.session.count(),
+    prisma.payment.aggregate({ _sum: { totalAmount: true }, where: { status: "SUCCESS" } }),
+    prisma.psychologistProfile.count({ where: { isVerified: false } })
+  ]);
+
+  const today = new Date();
+  const monthlyStats = await RevenueService.getMonthlyStats(today.getFullYear(), today.getMonth() + 1).catch(() => null);
+
+  return c.json({
+    data: {
+      totalUsers: userCount,
+      totalPsychologists: psychCount,
+      totalSessions: sessionCount,
+      totalRevenue: revenueAgg._sum.totalAmount ?? 0,
+      pendingVerification: pendingVerif,
+      monthlyStats
+    }
+  });
+});
+
+app.get("/api/admin/sessions/recent", async (c) => {
+  const limit = Number(c.req.query("limit") || 10);
+  const list = await prisma.session.findMany({
+    take: limit,
+    orderBy: { createdAt: "desc" },
+    include: {
+      client: true,
+      psychologist: { include: { user: true } },
+      payment: true
+    }
+  });
+
+  const psychologistIds = Array.from(new Set(list.map(s => s.psychologistId)));
+  const slots = await prisma.availabilitySlot.findMany({
+    where: { psychologistId: { in: psychologistIds } }
+  });
+
+  return c.json({
+    data: list.map((s) => ({
+      id: s.id,
+      clientName: s.client.fullName,
+      psychologistName: s.psychologist.user.fullName,
+      status: s.status,
+      amount: s.payment?.totalAmount ?? 0,
+      scheduledAt: s.scheduledAt.toISOString(),
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+    }))
+  });
+});
+
+app.get("/api/admin/psychologists", async (c) => {
+  const list = await prisma.psychologistProfile.findMany({
+    include: {
+      user: true,
+      specializations: { include: { specialization: true } },
+      sessions: true
+    },
+    orderBy: {
+      user: {
+        createdAt: "asc"
+      }
+    }
+  });
+  return c.json({
+    data: list.map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      name: p.user.fullName,
+      email: p.user.email,
+      phone: p.user.phone,
+      avatarUrl: p.user.avatarUrl,
+      isVerified: p.isVerified,
+      isActive: p.isActive,
+      licenseNumber: p.licenseNumber,
+      experienceYears: p.experienceYears,
+      pricePerSession: p.pricePerSession,
+      averageRating: Number(p.averageRating),
+      totalSessions: p.sessions.length,
+      specializations: p.specializations.map((s) => s.specialization.name),
+      serviceMode: p.serviceMode,
+      gender: p.gender,
+      homeAddress: p.homeAddress,
+      createdAt: p.user.createdAt.toISOString()
+    }))
+  });
+});
+
+app.patch("/api/admin/psychologists/:id/toggle-active", async (c) => {
+  const id = c.req.param("id");
+  const profile = await prisma.psychologistProfile.findUnique({ where: { id } });
+  if (!profile) return c.notFound();
+
+  const nextActive = !profile.isActive;
+  const updated = await prisma.psychologistProfile.update({
+    where: { id },
+    data: { isActive: nextActive }
+  });
+
+  await prisma.user.update({
+    where: { id: profile.userId },
+    data: { isActive: nextActive }
+  });
+
+  return c.json({ data: { id: updated.id, isActive: updated.isActive } });
+});
+
+app.patch("/api/admin/psychologists/:id/verify", async (c) => {
+  const id = c.req.param("id");
+  const updated = await prisma.psychologistProfile.update({
+    where: { id },
+    data: { isVerified: true }
+  });
+  return c.json({ data: { id: updated.id, isVerified: updated.isVerified } });
+});
+
+app.get("/api/admin/clients", async (c) => {
+  const list = await prisma.user.findMany({
+    where: { role: "CLIENT" },
+    include: {
+      clientSessions: {
+        include: { payment: true }
+      }
+    },
+    orderBy: { createdAt: "asc" }
+  });
+  return c.json({
+    data: list.map((u) => ({
+      id: u.id,
+      name: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      avatarUrl: u.avatarUrl,
+      isActive: u.isActive,
+      totalSessions: u.clientSessions.length,
+      totalSpent: u.clientSessions.reduce((sum, s) => sum + (s.payment?.totalAmount ?? 0), 0),
+      lastSession: u.clientSessions.length > 0
+        ? u.clientSessions.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())[0].scheduledAt.toISOString()
+        : null,
+      createdAt: u.createdAt.toISOString()
+    }))
+  });
+});
+
+app.patch("/api/admin/users/:id/toggle-active", async (c) => {
+  const id = c.req.param("id");
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return c.notFound();
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: { isActive: !user.isActive }
+  });
+
+  if (user.role === "PSYCHOLOGIST") {
+    await prisma.psychologistProfile.update({
+      where: { userId: id },
+      data: { isActive: updated.isActive }
+    }).catch(() => { });
+  }
+
+  return c.json({ data: { id: updated.id, isActive: updated.isActive } });
+});
+
+app.patch("/api/admin/users/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return c.notFound();
+
+  const fullName = body.name || body.fullName ? String(body.name || body.fullName) : undefined;
+  const email = body.email ? String(body.email) : undefined;
+  const phone = body.phone !== undefined ? String(body.phone || "") : undefined;
+  const avatarUrl = body.avatarUrl !== undefined ? String(body.avatarUrl || "") : undefined;
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: {
+      fullName,
+      email,
+      phone,
+      avatarUrl
+    }
+  });
+
+  if (user.role === "PSYCHOLOGIST") {
+    const experienceYears = body.experienceYears !== undefined ? Number(body.experienceYears) : undefined;
+    const pricePerSession = body.pricePerSession !== undefined ? Number(body.pricePerSession) : undefined;
+    const licenseNumber = body.licenseNumber !== undefined ? String(body.licenseNumber) : undefined;
+    const specializations = body.specializations as string[] | undefined;
+    const gender = body.gender !== undefined ? (body.gender as any) : undefined;
+    const serviceMode = body.serviceMode !== undefined ? (body.serviceMode as any) : undefined;
+    const homeAddress = body.homeAddress !== undefined ? String(body.homeAddress) : undefined;
+
+    await prisma.psychologistProfile.update({
+      where: { userId: id },
+      data: {
+        experienceYears,
+        pricePerSession,
+        licenseNumber,
+        gender,
+        serviceMode,
+        homeAddress
+      }
+    });
+
+    if (specializations) {
+      const profile = await prisma.psychologistProfile.findUnique({ where: { userId: id } });
+      if (profile) {
+        await prisma.psychologistSpecialization.deleteMany({
+          where: { psychologistId: profile.id }
+        });
+
+        for (const specName of specializations) {
+          let spec = await prisma.specialization.findUnique({ where: { name: specName } });
+          if (!spec) {
+            spec = await prisma.specialization.create({ data: { name: specName } });
+          }
+          await prisma.psychologistSpecialization.create({
+            data: {
+              psychologistId: profile.id,
+              specializationId: spec.id
+            }
+          });
+        }
+      }
+    }
+  }
+
+  return c.json({ data: { ok: true } });
+});
+
+app.get("/api/admin/leaves", async (c) => {
+  const list = await prisma.availabilitySlot.findMany({
+    where: {
+      isBlocked: true,
+      specificDate: { not: null }
+    },
+    include: {
+      psychologist: {
+        include: {
+          user: true
+        }
+      }
+    },
+    orderBy: {
+      specificDate: "asc"
+    }
+  });
+
+  return c.json({
+    data: list.map((s) => ({
+      id: s.id,
+      date: toLocalDateString(s.specificDate!),
+      isApproved: s.isApproved,
+      psychologistId: s.psychologistId,
+      psychologistName: s.psychologist.user.fullName,
+      psychologistEmail: s.psychologist.user.email
+    }))
+  });
+});
+
+app.patch("/api/admin/leaves/:id/approve", async (c) => {
+  const id = c.req.param("id");
+  const updated = await prisma.availabilitySlot.update({
+    where: { id },
+    data: { isApproved: true }
+  });
+  return c.json({ data: updated });
+});
+
+app.delete("/api/admin/leaves/:id", async (c) => {
+  const id = c.req.param("id");
+  await prisma.availabilitySlot.delete({ where: { id } });
+  return c.json({ ok: true, id });
+});
+
+// ─── END ADMIN ENDPOINTS ──────────────────────────────────────────────────────
+
+const port = 6969;
+
+if (process.env.NODE_ENV !== "test") {
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`h2h Hono API running on http://localhost:${info.port}`);
+  });
+}

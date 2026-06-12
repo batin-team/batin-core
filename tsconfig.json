@@ -11,10 +11,11 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["jest", "node"],
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "*": ["node_modules/*", "src/*"]
     }
   },
-  "include": ["src/**/*", "api/**/*", "jest.config.js"],
+  "include": ["src/**/*", "jest.config.js"],
   "exclude": ["node_modules"]
 }

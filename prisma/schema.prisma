@@ -8,11 +8,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
+// ─── ENUMS ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
   CLIENT
-  PROVIDER
+  PSYCHOLOGIST
   ADMIN
+  PROVIDER
   SUPER_ADMIN
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+}
+
+enum ServiceMode {
+  ONLINE
+  OFFLINE
+  BOTH
+}
+
+enum SessionType {
+  ONLINE
+  OFFLINE
+}
+
+enum SessionStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AssignmentMethod {
+  AUTO_ASSIGN
+  SELF_SELECT
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
 }
 
 enum MembershipType {
@@ -35,73 +75,203 @@ enum VerificationStatus {
   REJECTED
 }
 
-enum AppointmentStatus {
-  PENDING_PAYMENT
-  CONFIRMED
-  CANCELLED
-  COMPLETED
-}
+// ─── MODELS ──────────────────────────────────────────────────────────────────
 
 model User {
-  id                String   @id @default(uuid())
-  email             String   @unique
-  passwordHash      String
-  role              Role     @default(CLIENT)
-  fullName          String?
-  phone             String?
-  dob               DateTime?
-  gender            String?
-  address           String?
-  emergencyContact  Json?
-  preferredLanguage String?
-  isVerified        Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String                 @id @default(uuid())
+  email                String                 @unique
+  passwordHash         String                 @map("password_hash")
+  role                 UserRole               @default(CLIENT)
+  fullName             String                 @map("full_name")
+  phone                String?
+  avatarUrl            String?                @map("avatar_url")
+  isActive             Boolean                @default(true) @map("is_active")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
 
-  provider          Provider?
-  appointments      Appointment[] @relation("ClientAppointments")
-  notifications     Notification[]
-  supportTickets    SupportTicket[]
-  auditLogs         AuditLog[]
-  articles          Article[]
+  // H2H Extra Fields
+  dob                  DateTime?
+  gender               String?
+  address              String?
+  emergencyContact     Json?
+  preferredLanguage    String?
+  isVerified           Boolean                @default(false)
+
+  // Relations
+  psychologistProfile  PsychologistProfile?
+  clientSessions       Session[]              @relation("ClientSessions")
+  reviews              Review[]
+  notifications        Notification[]
+  supportTickets       SupportTicket[]
+  auditLogs            AuditLog[]
+  articles             Article[]
+
+  @@map("users")
 }
 
-model Provider {
-  id                String           @id @default(uuid())
-  userId            String           @unique
-  user              User             @relation(fields: [userId], references: [id])
-  membershipType    MembershipType
-  professionalType  ProfessionalType
-  status            VerificationStatus @default(PENDING)
-  specialties       String[]
-  qualifications    String[]
-  yearsOfExperience Int?
-  languages         String[]
-  bio               String?
-  hourlyRate        Decimal          @db.Decimal(10, 2)
-  rating            Float            @default(0)
+model PsychologistProfile {
+  id                 String                         @id @default(uuid())
+  userId             String                         @unique @map("user_id")
+  user               User                           @relation(fields: [userId], references: [id])
+  licenseNumber      String                         @map("license_number")
+  licenseDocumentUrl String?                        @map("license_document_url")
+  bio                String
+  experienceYears    Int                            @map("experience_years")
+  gender             Gender
+  homeAddress        String?                        @map("home_address")
+  homeLat            Decimal?                       @map("home_lat") @db.Decimal(10, 7)
+  homeLng            Decimal?                       @map("home_lng") @db.Decimal(10, 7)
+  serviceMode        ServiceMode                    @map("service_mode")
+  pricePerSession    Int                            @map("price_per_session")
+  isVerified         Boolean                        @default(false) @map("is_verified")
+  isActive           Boolean                        @default(true) @map("is_active")
+  averageRating      Decimal                        @default(0) @map("average_rating") @db.Decimal(3, 2)
+  specializations    PsychologistSpecialization[]
+  availabilitySlots  AvailabilitySlot[]
+  sessions           Session[]
+  reviews            Review[]
 
-  documents         ProviderDocument[]
-  locations         ProviderLocation[]
-  appointments      Appointment[]      @relation("ProviderAppointments")
+  // Merged Provider fields from H2H
+  membershipType     MembershipType?
+  professionalType   ProfessionalType?
+  languages          String[]
+  qualifications     String[]
+
+  @@map("psychologist_profiles")
 }
 
-model ProviderDocument {
-  id         String @id @default(uuid())
-  providerId String
-  provider   Provider @relation(fields: [providerId], references: [id])
-  type       String
-  s3Key      String
-  status     String @default("PENDING")
+model Specialization {
+  id             String                         @id @default(uuid())
+  name           String                         @unique
+  description    String?
+  psychologists  PsychologistSpecialization[]
+
+  @@map("specializations")
 }
 
-model ProviderLocation {
-  id         String @id @default(uuid())
-  providerId String
-  provider   Provider @relation(fields: [providerId], references: [id])
-  name       String
-  address    String
-  appointments Appointment[]
+model PsychologistSpecialization {
+  psychologistId   String              @map("psychologist_id")
+  specializationId String              @map("specialization_id")
+  psychologist     PsychologistProfile @relation(fields: [psychologistId], references: [id])
+  specialization   Specialization      @relation(fields: [specializationId], references: [id])
+
+  @@id([psychologistId, specializationId])
+  @@map("psychologist_specializations")
+}
+
+model AvailabilitySlot {
+  id             String              @id @default(uuid())
+  psychologistId String              @map("psychologist_id")
+  psychologist   PsychologistProfile @relation(fields: [psychologistId], references: [id])
+  dayOfWeek      Int?                @map("day_of_week")
+  startTime      String              @map("start_time")
+  endTime        String              @map("end_time")
+  isRecurring    Boolean             @default(true) @map("is_recurring")
+  specificDate   DateTime?           @map("specific_date")
+  isBlocked      Boolean             @default(false) @map("is_blocked")
+  isApproved     Boolean             @default(true) @map("is_approved")
+
+  @@map("availability_slots")
+}
+
+model Session {
+  id                  String             @id @default(uuid())
+  clientId            String             @map("client_id")
+  client              User               @relation("ClientSessions", fields: [clientId], references: [id])
+  psychologistId      String             @map("psychologist_id")
+  psychologist        PsychologistProfile @relation(fields: [psychologistId], references: [id])
+  sessionType         SessionType        @map("session_type")
+  status              SessionStatus      @default(PENDING_PAYMENT)
+  assignmentMethod    AssignmentMethod   @map("assignment_method")
+  scheduledAt         DateTime           @map("scheduled_at")
+  durationMinutes     Int                @default(60) @map("duration_minutes")
+  meetingLocation     String?            @map("meeting_location")
+  meetingLat          Decimal?           @map("meeting_lat") @db.Decimal(10, 7)
+  meetingLng          Decimal?           @map("meeting_lng") @db.Decimal(10, 7)
+  googleMeetUrl       String?            @map("google_meet_url")
+  googleMeetEventId   String?            @map("google_meet_event_id")
+  clientIssues        String[]           @map("client_issues")
+  clientNotes         String?            @map("client_notes")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  payment             Payment?
+  attendance          SessionAttendance?
+  notes               SessionNotes?
+  review              Review?
+
+  // Merged Appointment fields from H2H
+  locationId          String?
+  assessmentId        String?
+  assessment          AssessmentResponse? @relation(fields: [assessmentId], references: [id])
+  transactions        Transaction[]
+
+  @@map("sessions")
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  sessionId             String        @unique @map("session_id")
+  session               Session       @relation(fields: [sessionId], references: [id])
+  amount                Int
+  platformFee           Int           @map("platform_fee")
+  totalAmount           Int           @map("total_amount")
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         String?       @map("payment_method")
+  midtransOrderId       String?       @map("midtrans_order_id")
+  midtransTransactionId String?       @map("midtrans_transaction_id")
+  paidAt                DateTime?     @map("paid_at")
+  receiptUrl            String?       @map("receipt_url")
+
+  @@map("payments")
+}
+
+model SessionAttendance {
+  id              String    @id @default(uuid())
+  sessionId       String    @unique @map("session_id")
+  session         Session   @relation(fields: [sessionId], references: [id])
+  clientAttended  Boolean   @default(false) @map("client_attended")
+  actualStartTime DateTime? @map("actual_start_time")
+  actualEndTime   DateTime? @map("actual_end_time")
+  evidencePhotoUrl String?  @map("evidence_photo_url")
+  notes           String?
+  submittedAt     DateTime? @map("submitted_at")
+
+  @@map("session_attendance")
+}
+
+model SessionNotes {
+  id                         String   @id @default(uuid())
+  sessionId                  String   @unique @map("session_id")
+  session                    Session  @relation(fields: [sessionId], references: [id])
+  chiefComplaint             String   @map("chief_complaint")
+  assessmentObservation      String   @map("assessment_observation")
+  interventions              String
+  followUpPlan               String   @map("follow_up_plan")
+  recommendations            String
+  furtherSessionsRecommended Boolean  @default(false) @map("further_sessions_recommended")
+  isSentToClient             Boolean  @default(false) @map("is_sent_to_client")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  @@map("session_notes")
+}
+
+model Review {
+  id             String              @id @default(uuid())
+  sessionId      String              @unique @map("session_id")
+  session        Session             @relation(fields: [sessionId], references: [id])
+  clientId       String              @map("client_id")
+  client         User                @relation(fields: [clientId], references: [id])
+  psychologistId String              @map("psychologist_id")
+  psychologist   PsychologistProfile @relation(fields: [psychologistId], references: [id])
+  rating         Int
+  comment        String?
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  // H2H Extra
+  isAnonymous    Boolean             @default(false)
+
+  @@map("reviews")
 }
 
 model BookingLock {
@@ -123,49 +293,17 @@ model AssessmentResponse {
   isHighRisk  Boolean  @default(false)
   createdAt   DateTime @default(now())
 
-  appointments Appointment[]
-}
-
-model Appointment {
-  id           String            @id @default(uuid())
-  clientId     String
-  client       User              @relation("ClientAppointments", fields: [clientId], references: [id])
-  providerId   String
-  provider     Provider          @relation("ProviderAppointments", fields: [providerId], references: [id])
-  locationId   String?
-  location     ProviderLocation? @relation(fields: [locationId], references: [id])
-  status       AppointmentStatus @default(PENDING_PAYMENT)
-  startTime    DateTime
-  endTime      DateTime
-  googleEventId String?
-  meetLink     String?
-  assessmentId String?
-  assessment   AssessmentResponse? @relation(fields: [assessmentId], references: [id])
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-
-  reviews      Review[]
-  transactions Transaction[]
-}
-
-model Review {
-  id            String      @id @default(uuid())
-  appointmentId String      @unique
-  appointment   Appointment @relation(fields: [appointmentId], references: [id])
-  rating        Int
-  comment       String?
-  isAnonymous   Boolean     @default(false)
-  createdAt     DateTime    @default(now())
+  sessions    Session[]
 }
 
 model Transaction {
   id            String   @id @default(uuid())
-  appointmentId String
-  appointment   Appointment @relation(fields: [appointmentId], references: [id])
-  amount        Decimal     @db.Decimal(10, 2)
+  sessionId     String   @map("session_id")
+  session       Session  @relation(fields: [sessionId], references: [id])
+  amount        Decimal  @db.Decimal(10, 2)
   status        String
-  provider      String?     // External provider ID/ref
-  createdAt     DateTime    @default(now())
+  provider      String?
+  createdAt     DateTime @default(now())
 
   ledgerEntries LedgerEntry[]
 }
@@ -174,7 +312,7 @@ model LedgerEntry {
   id            String      @id @default(uuid())
   transactionId String
   transaction   Transaction @relation(fields: [transactionId], references: [id])
-  type          String      // e.g., "PLATFORM_FEE", "PROVIDER_SHARE"
+  type          String
   amount        Decimal     @db.Decimal(10, 2)
   createdAt     DateTime    @default(now())
 }
