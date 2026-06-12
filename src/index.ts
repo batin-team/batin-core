@@ -15,7 +15,15 @@ import { AssessmentService } from "./services/assessment.service";
 export const app = new Hono();
 export default app;
 
-app.use("*", cors());
+app.use(
+  "*",
+  cors({
+    origin: (origin) => origin || "*",
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowHeaders: ["Content-Type", "Authorization", "x-user-id"],
+    credentials: true,
+  })
+);
 
 async function readObjectBody(c: Context): Promise<Record<string, unknown>> {
   const body = await c.req.json().catch(() => ({}));

@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 
+  (typeof window !== "undefined" && window.location.hostname !== "localhost" 
+    ? "" 
+    : "http://localhost:6969");
 
 function getUserIdHeader(): Record<string, string> {
   if (typeof window === "undefined") return {};
