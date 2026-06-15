@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useRef, useMemo } from "react";
-import { Calendar, CheckCircle2, AlertCircle, Video, MapPin, FileText, ClipboardCheck, ArrowRight, User } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Calendar, CheckCircle2, AlertCircle, Video, MapPin, FileText, ClipboardCheck } from "lucide-react";
 import { PsychologistLayout } from "../../../components/PsychologistLayout";
 import { apiFetch } from "../../../lib/api";
+import { ScheduleCalendar } from "../../../components/ScheduleCalendar";
 
 type StoredSession = {
   id: string;
@@ -29,60 +30,10 @@ export default function PsychologistDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
 
-  // Date navigator state — starts at today
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
 
   const notifications = useMemo(() => {
     return generateNotifications(allSessions);
   }, [allSessions]);
-
-  const dateInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCalendarClick = () => {
-    if (dateInputRef.current) {
-      try {
-        dateInputRef.current.showPicker();
-      } catch (err) {
-        dateInputRef.current.click();
-      }
-    }
-  };
-
-  const isToday = (d: Date) => {
-    const today = new Date();
-    return (
-      d.getFullYear() === today.getFullYear() &&
-      d.getMonth() === today.getMonth() &&
-      d.getDate() === today.getDate()
-    );
-  };
-
-  const formatSelectedDate = (d: Date) =>
-    d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-
-  const shiftDay = (delta: number) => {
-    setSelectedDate((prev) => {
-      const next = new Date(prev);
-      next.setDate(next.getDate() + delta);
-      return next;
-    });
-  };
-
-  // Sessions for the currently selected date
-  const selectedDaySessions = allSessions.filter((s) => {
-    const d = new Date(s.scheduledAt);
-    // Convert UTC to WIB (+7) for comparison
-    const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
-    return (
-      wib.getUTCFullYear() === selectedDate.getFullYear() &&
-      wib.getUTCMonth() === selectedDate.getMonth() &&
-      wib.getUTCDate() === selectedDate.getDate()
-    );
-  });
 
   useEffect(() => {
     const raw = localStorage.getItem("mindbridge_user");
@@ -209,174 +160,9 @@ export default function PsychologistDashboardPage() {
       {/* Grid Layout: Sessions (Left) and Notifications (Right) */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 32, alignItems: "start" }}>
 
-        {/* Left Column: Jadwal dengan Navigasi Tanggal */}
+        {/* Left Column: Jadwal Konseling — Full Calendar */}
         <section style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 32, border: "1px solid #E2E8F0" }}>
-          {/* Date Navigator Header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, gap: 12, flexWrap: "wrap" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 800, color: "#0F172A", margin: 0 }}>Jadwal Konseling</h2>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* Prev day */}
-              <button
-                onClick={() => shiftDay(-1)}
-                title="Hari sebelumnya"
-                style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid #E2E8F0", background: "#F8FAFC", cursor: "pointer", display: "grid", placeItems: "center", fontSize: 16, color: "#475569", fontWeight: 700, transition: "all 0.15s" }}
-              >
-                ‹
-              </button>
-
-              {/* Date display / click to pick date */}
-              <div
-                onClick={handleCalendarClick}
-                style={{ position: "relative", cursor: "pointer", display: "inline-block" }}
-              >
-                <span style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  padding: "6px 14px", borderRadius: 8, border: "1px solid #E2E8F0",
-                  backgroundColor: isToday(selectedDate) ? "#EFF6FF" : "#F8FAFC",
-                  color: isToday(selectedDate) ? "#2563EB" : "#1E293B",
-                  fontSize: 13, fontWeight: 700, cursor: "pointer", userSelect: "none"
-                }}>
-                  <Calendar size={14} />
-                  {isToday(selectedDate) ? "Hari Ini" : ""} {formatSelectedDate(selectedDate)}
-                </span>
-                <input
-                  ref={dateInputRef}
-                  type="date"
-                  value={selectedDate.toISOString().split("T")[0]}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const [y, m, d] = e.target.value.split("-").map(Number);
-                      const nd = new Date(y, m - 1, d);
-                      nd.setHours(0, 0, 0, 0);
-                      setSelectedDate(nd);
-                    }
-                  }}
-                  style={{ position: "absolute", opacity: 0, width: 0, height: 0, top: 0, left: 0, pointerEvents: "none" }}
-                />
-              </div>
-
-              {/* Next day */}
-              <button
-                onClick={() => shiftDay(1)}
-                title="Hari berikutnya"
-                style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid #E2E8F0", background: "#F8FAFC", cursor: "pointer", display: "grid", placeItems: "center", fontSize: 16, color: "#475569", fontWeight: 700, transition: "all 0.15s" }}
-              >
-                ›
-              </button>
-
-              {/* Jump to today */}
-              {!isToday(selectedDate) && (
-                <button
-                  onClick={() => { const t = new Date(); t.setHours(0, 0, 0, 0); setSelectedDate(t); }}
-                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #2563EB", background: "transparent", color: "#2563EB", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                >
-                  Hari Ini
-                </button>
-              )}
-            </div>
-          </div>
-
-          {loading ? (
-            <p style={{ color: "#64748B" }}>Memuat sesi konseling...</p>
-          ) : selectedDaySessions.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "32px 0", color: "#94A3B8" }}>
-              <Calendar size={36} style={{ margin: "0 auto 12px", opacity: 0.3 }} />
-              <p style={{ fontSize: 14, fontWeight: 500 }}>Tidak ada sesi yang dijadwalkan pada hari ini.</p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-              {selectedDaySessions.map((session) => {
-                const isOnline = session.sessionType === "ONLINE";
-                const d = new Date(session.scheduledAt);
-                const localTime = new Date(d.getTime() + 7 * 60 * 60 * 1000);
-                const hourStr = localTime.toISOString().split("T")[1].substring(0, 5);
-
-                return (
-                  <div key={session.id} style={{ display: "flex", gap: 24 }}>
-                    {/* Time Label on left */}
-                    <div style={{ width: 100, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: "#1E293B", textAlign: "center" }}>{(session as any).timeRange || hourStr}</span>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: isOnline ? "#10B981" : "#8B5CF6", marginTop: 8 }} />
-                    </div>
-
-                    {/* Session Details Card on right */}
-                    <div style={{ flex: 1, backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div>
-                          <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", marginBottom: 6 }}>{session.clientName}</h3>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            {session.clientIssues.map((issue) => (
-                              <span key={issue} style={{ fontSize: 11, fontWeight: 600, backgroundColor: "#F1F5F9", color: "#475569", padding: "2px 8px", borderRadius: 4 }}>
-                                {issue}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        {getStatusBadge(session.status)}
-                      </div>
-
-                      <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {isOnline ? <Video size={15} /> : <MapPin size={15} />}
-                          {session.sessionType} ({(session as any).timeRange || getSessionTimeRange(session.scheduledAt)})
-                        </div>
-                      </div>
-
-                      {session.clientNotes && (
-                        <div style={{ fontSize: 13, color: "#475569", backgroundColor: "#F8FAFC", borderRadius: 8, padding: "10px 14px", borderLeft: "3px solid #3B82F6", marginTop: -4 }}>
-                          <strong style={{ display: "block", fontSize: 11, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Keluhan dari Klien:</strong>
-                          "{session.clientNotes}"
-                        </div>
-                      )}
-
-                      {/* Progress Bar for partially filled session (only 1 of 2 submitted) */}
-                      {((session.hasNotes && !session.hasAttendance) || (!session.hasNotes && session.hasAttendance)) && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "4px 0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontWeight: 700, color: "#7C3AED" }}>
-                            <span>Progress Pengisian Sesi</span>
-                            <span>50% (1 dari 2 form disubmit)</span>
-                          </div>
-                          <div style={{ width: "100%", height: 6, backgroundColor: "#EDE9FE", borderRadius: 999, overflow: "hidden" }}>
-                            <div style={{ width: "50%", height: "100%", backgroundColor: "#7C3AED", borderRadius: 999 }} />
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
-                        {isOnline && session.meetUrl && (
-                          <a
-                            href={session.meetUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="button button-secondary"
-                            style={{ padding: "8px 14px", minHeight: 36, fontSize: 13, borderRadius: 8, borderColor: "#CBD5E1", display: "flex", alignItems: "center", gap: 6 }}
-                          >
-                            <Video size={14} /> Buka Meet
-                          </a>
-                        )}
-                        <Link
-                          href={`/dashboard/psychologist/notes?sessionId=${session.id}`}
-                          className="button button-primary"
-                          style={{ padding: "8px 14px", minHeight: 36, fontSize: 13, borderRadius: 8, backgroundColor: "#2563EB", display: "flex", alignItems: "center", gap: 6 }}
-                        >
-                          <FileText size={14} />
-                          {session.hasNotes ? "Edit Catatan" : "Buat Catatan"}
-                        </Link>
-                        <Link
-                          href={`/dashboard/psychologist/attendance?sessionId=${session.id}`}
-                          className="button button-secondary"
-                          style={{ padding: "8px 14px", minHeight: 36, fontSize: 13, borderRadius: 8, color: "#7C3AED", borderColor: "#7C3AED", display: "flex", alignItems: "center", gap: 6 }}
-                        >
-                          <ClipboardCheck size={14} />
-                          {session.hasAttendance ? "Lihat Kehadiran" : "Bukti Kehadiran"}
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <ScheduleCalendar sessions={allSessions} loading={loading} />
         </section>
 
         {/* Right Column: Notifikasi Terbaru */}
