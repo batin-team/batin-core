@@ -173,7 +173,7 @@ export default function HomePage() {
       <NavBar active="home" />
 
       {/* Hero Section */}
-      <section style={{ position: "relative", backgroundColor: "#F0F7FF", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" }}>
+      <section style={{ position: "relative", backgroundColor: "#F0F7FF", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" }}>
         {/* Animated Background SVG for Hero Banner */}
         <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 0, pointerEvents: "none" }} viewBox="0 0 1200 600" preserveAspectRatio="none">
           <defs>
@@ -294,7 +294,7 @@ export default function HomePage() {
       </section>
 
       {/* Psikolog Section */}
-      <section style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0" }}>
+      <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0" }}>
         <style dangerouslySetInnerHTML={{
           __html: `
           .hide-scrollbar::-webkit-scrollbar {
@@ -379,7 +379,7 @@ export default function HomePage() {
       </section>
 
       {/* Reviews Section */}
-      <section style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0", borderTop: "1px solid #E2E8F0", borderBottom: "1px solid #E2E8F0" }}>
+      <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0", borderTop: "1px solid #E2E8F0", borderBottom: "1px solid #E2E8F0" }}>
         <div className="container">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 44, flexWrap: "wrap", gap: 24 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, textAlign: "left" }}>
@@ -486,7 +486,7 @@ export default function HomePage() {
       </section>
 
       {/* Masalah yang ditangani */}
-      <section style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0" }}>
+      <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#F8FAFC", padding: "80px 0" }}>
         <div className="container" style={{ display: "flex", gap: 48, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 300, borderRadius: 24, overflow: "hidden", height: 380, position: "relative" }}>
             <img src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=600&q=80" alt="Psikolog" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -583,7 +583,7 @@ export default function HomePage() {
       </section>
 
       {/* Metode Konseling */}
-      <section style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 0" }}>
+      <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 0" }}>
         <div className="container">
           <div style={{ textAlign: "center", marginBottom: 48 }}>
             <h3 style={{ color: "#2563EB", fontWeight: 700, fontSize: 14, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Layanan Kami</h3>
@@ -628,7 +628,7 @@ export default function HomePage() {
       </section>
 
       {/* CTA Big */}
-      <section style={{ minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 24px" }}>
+      <section style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 24px" }}>
         <div className="container" style={{ position: "relative", backgroundColor: "#1E3A8A", borderRadius: 24, padding: "64px 24px", textAlign: "center", overflow: "hidden" }}>
           {/* Animated SVG background */}
           <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 0, pointerEvents: "none" }} viewBox="0 0 800 300" preserveAspectRatio="none">
