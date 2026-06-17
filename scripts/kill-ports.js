@@ -2,10 +2,9 @@ const { execSync } = require("child_process");
 
 const ports = [3000, 6969];
 
-function killPort(port) {
+function killPorts(portsList) {
   try {
     if (process.platform === "win32") {
-      // Get netstat output for the port
       let output = "";
       try {
         output = execSync(`netstat -ano`).toString();
@@ -18,14 +17,15 @@ function killPort(port) {
       
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
-        // Netstat lines usually have proto, local address, foreign address, state, PID
         if (parts.length >= 4) {
           const localAddress = parts[1];
-          // Check if local address ends with :port
-          if (localAddress && (localAddress.endsWith(`:${port}`) || localAddress.endsWith(`[::]:${port}`))) {
-            const pid = parts[parts.length - 1];
-            if (pid && pid !== "0" && !isNaN(pid)) {
-              pids.add(pid);
+          if (localAddress) {
+            const match = portsList.some(port => localAddress.endsWith(`:${port}`) || localAddress.endsWith(`[::]:${port}`));
+            if (match) {
+              const pid = parts[parts.length - 1];
+              if (pid && pid !== "0" && !isNaN(pid)) {
+                pids.add(pid);
+              }
             }
           }
         }
@@ -33,7 +33,7 @@ function killPort(port) {
       
       for (const pid of pids) {
         try {
-          console.log(`Killing process ${pid} on port ${port}...`);
+          console.log(`Killing process ${pid}...`);
           execSync(`taskkill /F /PID ${pid}`);
         } catch (e) {
           // Ignore errors during killing
@@ -41,14 +41,16 @@ function killPort(port) {
       }
     } else {
       // Unix/macOS
-      try {
-        const pid = execSync(`lsof -t -i:${port}`).toString().trim();
-        if (pid) {
-          console.log(`Killing process ${pid} on port ${port}...`);
-          execSync(`kill -9 ${pid}`);
+      for (const port of portsList) {
+        try {
+          const pid = execSync(`lsof -t -i:${port}`).toString().trim();
+          if (pid) {
+            console.log(`Killing process ${pid} on port ${port}...`);
+            execSync(`kill -9 ${pid}`);
+          }
+        } catch (e) {
+          // Ignore if no process matches
         }
-      } catch (e) {
-        // Ignore if no process matches
       }
     }
   } catch (e) {
@@ -57,5 +59,5 @@ function killPort(port) {
 }
 
 console.log("Cleaning up ports 3000 and 6969...");
-ports.forEach(killPort);
+killPorts(ports);
 console.log("Ports cleanup complete.");
