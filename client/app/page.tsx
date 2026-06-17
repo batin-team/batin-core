@@ -22,6 +22,7 @@ const GoogleIcon = () => (
 
 export default function HomePage() {
   const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const psychRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLDivElement>(null);
 
@@ -62,10 +63,13 @@ export default function HomePage() {
   useEffect(() => {
     async function load() {
       try {
+        setIsLoading(true);
         const psychRes = await apiFetch("/api/psychologists");
         setPsychologists(psychRes.data || []);
       } catch (e) {
         console.error("Failed to load", e);
+      } finally {
+        setIsLoading(false);
       }
     }
     load();
@@ -74,6 +78,24 @@ export default function HomePage() {
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
   };
+
+  const SkeletonCard = () => (
+    <div style={{ minWidth: 260, width: 260, backgroundColor: "#FFF", borderRadius: 16, border: "1px solid #E2E8F0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div className="skeleton-pulse" style={{ height: 260, width: "100%", backgroundColor: "#F1F5F9" }} />
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1, textAlign: "left" }}>
+        <div className="skeleton-pulse" style={{ height: 20, width: "70%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 12 }} />
+        <div className="skeleton-pulse" style={{ height: 16, width: "50%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 16 }} />
+        <div style={{ marginBottom: 16 }}>
+          <div className="skeleton-pulse" style={{ height: 12, width: "30%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 6 }} />
+          <div className="skeleton-pulse" style={{ height: 22, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 8, marginTop: "auto" }}>
+          <div className="skeleton-pulse" style={{ height: 36, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          <div className="skeleton-pulse" style={{ height: 36, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+        </div>
+      </div>
+    </div>
+  );
 
   const HorizontalCard = ({ p }: { p: Psychologist }) => (
     <div style={{ minWidth: 260, width: 260, backgroundColor: "#FFF", borderRadius: 16, border: "1px solid #E2E8F0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -349,6 +371,13 @@ export default function HomePage() {
             from { transform: translateY(20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
           }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .4; }
+          }
+          .skeleton-pulse {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
         `}} />
         <div className="container">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 48, flexWrap: "wrap", gap: 16 }}>
@@ -366,11 +395,19 @@ export default function HomePage() {
             </div>
           </div>
           <div ref={psychRef} className="hide-scrollbar" style={{ display: "flex", gap: 20, overflowX: "auto", paddingBottom: 24, paddingLeft: 16, paddingRight: 16, scrollBehavior: "smooth" }}>
-            {psychologists.map((p) => (
-              <div key={p.id} className="snap-card" style={{ flexShrink: 0 }}>
-                <HorizontalCard p={p} />
-              </div>
-            ))}
+            {isLoading ? (
+              [...Array(4)].map((_, i) => (
+                <div key={i} className="snap-card" style={{ flexShrink: 0 }}>
+                  <SkeletonCard />
+                </div>
+              ))
+            ) : (
+              psychologists.map((p) => (
+                <div key={p.id} className="snap-card" style={{ flexShrink: 0 }}>
+                  <HorizontalCard p={p} />
+                </div>
+              ))
+            )}
           </div>
           <div style={{ textAlign: "center", marginTop: 16 }}>
             <Link href="/psychologists" style={{ color: "#2563EB", fontWeight: 600, fontSize: 16, textDecoration: "none", border: "1px solid #2563EB", padding: "12px 32px", borderRadius: 8, display: "inline-block" }}>Lihat Semua Psikolog</Link>

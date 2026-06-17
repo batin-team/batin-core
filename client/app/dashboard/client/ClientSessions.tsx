@@ -61,9 +61,69 @@ export function ClientSessions() {
 
   if (isLoading) {
     return (
-      <div className="empty-state">
-        <h3>Memuat riwayat sesi...</h3>
-      </div>
+      <>
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: .4; }
+            }
+            .skeleton-pulse {
+              animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+          `
+        }} />
+        <div className="section-heading">
+          <div className="skeleton-pulse" style={{ height: 16, width: 150, backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 8 }} />
+          <div className="skeleton-pulse" style={{ height: 36, width: 300, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+          <div className="skeleton-pulse" style={{ height: 16, width: 450, backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 8 }} />
+        </div>
+
+        <div style={{ display: "flex", gap: 32, borderBottom: "2px solid #E2E8F0", marginBottom: 32, paddingBottom: 16 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="skeleton-pulse" style={{ height: 20, width: 80, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+          ))}
+        </div>
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 24 }}>
+          {[1, 2, 3].map(i => (
+            <article
+              key={i}
+              style={{
+                backgroundColor: "#FFFFFF",
+                borderRadius: 20,
+                border: "1px solid #E2E8F0",
+                padding: 24,
+                display: "flex",
+                flexDirection: "column",
+                gap: 20,
+                boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)"
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div className="skeleton-pulse" style={{ width: 64, height: 64, borderRadius: "50%", backgroundColor: "#E2E8F0", flexShrink: 0 }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+                  <div className="skeleton-pulse" style={{ height: 18, width: "70%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                  <div className="skeleton-pulse" style={{ height: 14, width: "50%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                </div>
+              </div>
+
+              <div className="skeleton-pulse" style={{ height: 24, width: 100, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+
+              <div style={{ backgroundColor: "#F8FAFC", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                {[1, 2, 3].map(idx => (
+                  <div key={idx} className="skeleton-pulse" style={{ height: 14, width: "80%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                ))}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: "auto" }}>
+                <div className="skeleton-pulse" style={{ height: 40, backgroundColor: "#E2E8F0", borderRadius: 10 }} />
+                <div className="skeleton-pulse" style={{ height: 40, backgroundColor: "#E2E8F0", borderRadius: 10 }} />
+              </div>
+            </article>
+          ))}
+        </section>
+      </>
     );
   }
 

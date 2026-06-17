@@ -57,10 +57,88 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <div className="page-shell">
+      <div className="page-shell" style={{ backgroundColor: "#F8FAFC" }}>
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: .4; }
+            }
+            .skeleton-pulse {
+              animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+          `
+        }} />
         <NavBar active="psychologists" />
         <main className="container section">
-          <p>Memuat profil psikolog...</p>
+          <section className="dashboard-grid" style={{ alignItems: "flex-start", gap: 32 }}>
+            {/* Left Content Skeleton */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 48, flex: 1, minWidth: 0 }}>
+              {/* Header Skeleton */}
+              <div>
+                <div className="skeleton-pulse" style={{ height: 26, width: 250, backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 24 }} />
+                <div className="psychologist-detail-header" style={{ gap: 24, display: "flex" }}>
+                  <div className="skeleton-pulse" style={{ width: 140, height: 140, borderRadius: 16, backgroundColor: "#E2E8F0", flexShrink: 0 }} />
+                  <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 12, flex: 1 }}>
+                    <div className="skeleton-pulse" style={{ height: 28, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div className="skeleton-pulse" style={{ height: 32, width: 100, backgroundColor: "#E2E8F0", borderRadius: 20 }} />
+                      <div className="skeleton-pulse" style={{ height: 32, width: 100, backgroundColor: "#E2E8F0", borderRadius: 20 }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reviews Skeleton */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div className="skeleton-pulse" style={{ height: 26, width: 200, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                </div>
+                <div style={{ display: "flex", gap: 16, overflowX: "hidden" }}>
+                  {[1, 2].map((i) => (
+                    <div key={i} style={{ minWidth: 280, backgroundColor: "#FFFFFF", padding: 20, borderRadius: 16, border: "1px solid #E2E8F0", flex: 1 }}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+                        <div className="skeleton-pulse" style={{ width: 36, height: 36, borderRadius: "50%", backgroundColor: "#E2E8F0" }} />
+                        <div className="skeleton-pulse" style={{ height: 14, width: 80, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                      </div>
+                      <div className="skeleton-pulse" style={{ height: 14, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 6 }} />
+                      <div className="skeleton-pulse" style={{ height: 14, width: "70%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* About Skeleton */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div className="skeleton-pulse" style={{ height: 26, width: 150, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                <div className="profile-info-grid" style={{ gap: 24, display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="skeleton-pulse" style={{ height: 80, backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+                  <div className="skeleton-pulse" style={{ height: 80, backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+                </div>
+                <div className="skeleton-pulse" style={{ height: 14, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                <div className="skeleton-pulse" style={{ height: 14, width: "95%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                <div className="skeleton-pulse" style={{ height: 14, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              </div>
+            </div>
+
+            {/* Right Sidebar Skeleton */}
+            <aside style={{ backgroundColor: "#FFFFFF", padding: 24, borderRadius: 16, boxShadow: "0 4px 12px rgba(0,0,0,0.05)", width: 320, display: "flex", flexDirection: "column", gap: 20, flexShrink: 0 }}>
+              <div className="skeleton-pulse" style={{ height: 22, width: "50%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              <div className="skeleton-pulse" style={{ height: 16, width: "80%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              <div style={{ display: "flex", gap: 8, overflowX: "hidden" }}>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="skeleton-pulse" style={{ height: 50, width: 70, backgroundColor: "#E2E8F0", borderRadius: 8, flexShrink: 0 }} />
+                ))}
+              </div>
+              <div className="skeleton-pulse" style={{ height: 16, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="skeleton-pulse" style={{ height: 36, width: 80, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+                ))}
+              </div>
+              <div className="skeleton-pulse" style={{ height: 48, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+            </aside>
+          </section>
         </main>
         <Footer />
       </div>

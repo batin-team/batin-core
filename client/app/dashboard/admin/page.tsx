@@ -58,7 +58,11 @@ export default function AdminDashboardPage() {
   const STAT_CARDS = [
     {
       label: "Total User",
-      value: stats?.totalUsers ?? "—",
+      value: loading ? (
+        <div className="skeleton-pulse" style={{ height: 26, width: 60, backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 4 }} />
+      ) : (
+        stats?.totalUsers ?? "—"
+      ),
       icon: Users,
       bg: "#EFF6FF",
       color: "#2563EB",
@@ -66,7 +70,11 @@ export default function AdminDashboardPage() {
     },
     {
       label: "Psikolog",
-      value: stats?.totalPsychologists ?? "—",
+      value: loading ? (
+        <div className="skeleton-pulse" style={{ height: 26, width: 60, backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 4 }} />
+      ) : (
+        stats?.totalPsychologists ?? "—"
+      ),
       icon: UserCog,
       bg: "#F0FDF4",
       color: "#16A34A",
@@ -74,7 +82,11 @@ export default function AdminDashboardPage() {
     },
     {
       label: "Sesi",
-      value: stats?.totalSessions ?? "—",
+      value: loading ? (
+        <div className="skeleton-pulse" style={{ height: 26, width: 60, backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 4 }} />
+      ) : (
+        stats?.totalSessions ?? "—"
+      ),
       icon: Calendar,
       bg: "#FFF7ED",
       color: "#EA580C",
@@ -82,7 +94,11 @@ export default function AdminDashboardPage() {
     },
     {
       label: "Revenue",
-      value: stats ? formatCurrency(stats.totalRevenue) : "—",
+      value: loading ? (
+        <div className="skeleton-pulse" style={{ height: 26, width: 120, backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 4 }} />
+      ) : (
+        stats ? formatCurrency(stats.totalRevenue) : "—"
+      ),
       icon: DollarSign,
       bg: "#FFF1F2",
       color: "#E11D48",
@@ -92,6 +108,17 @@ export default function AdminDashboardPage() {
 
   return (
     <AdminLayout activeTab="dashboard">
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .4; }
+          }
+          .skeleton-pulse {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+        `
+      }} />
       {/* Page Header */}
       <div style={{ marginBottom: 32 }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Overview</p>
@@ -151,7 +178,43 @@ export default function AdminDashboardPage() {
         </div>
 
         {loading ? (
-          <div style={{ padding: 40, textAlign: "center", color: "#94A3B8", fontSize: 14 }}>Memuat data sesi...</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#F8FAFC" }}>
+                  {["Order", "Client", "Psikolog", "Tanggal", "Status", "Nilai"].map((h) => (
+                    <th key={h} style={{ padding: "12px 24px", textAlign: "left", fontSize: 11, fontWeight: 800, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid #F1F5F9" }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #F8FAFC" }}>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 16, width: 120, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </td>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 16, width: 100, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </td>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 16, width: 100, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </td>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 16, width: 80, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </td>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 20, width: 80, backgroundColor: "#E2E8F0", borderRadius: 6 }} />
+                    </td>
+                    <td style={{ padding: "14px 24px" }}>
+                      <div className="skeleton-pulse" style={{ height: 16, width: 80, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : recentSessions.length === 0 ? (
           <div style={{ padding: 40, textAlign: "center", color: "#94A3B8", fontSize: 14 }}>Belum ada sesi.</div>
         ) : (

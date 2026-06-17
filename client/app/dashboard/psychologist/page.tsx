@@ -105,56 +105,85 @@ export default function PsychologistDashboardPage() {
 
   return (
     <PsychologistLayout activeTab="dashboard">
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .4; }
+          }
+          .skeleton-pulse {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+        `
+      }} />
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontSize: 32, fontWeight: 800, color: "#0F172A", marginBottom: 6 }}>
           Selamat sore, {firstName} 👋
         </h1>
-        <p style={{ color: "#64748B", fontSize: 15, fontWeight: 500 }}>
-          Anda memiliki {todaySessions.length} sesi terjadwal hari ini
-        </p>
+        {loading ? (
+          <div className="skeleton-pulse" style={{ height: 20, width: 220, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        ) : (
+          <p style={{ color: "#64748B", fontSize: 15, fontWeight: 500 }}>
+            Anda memiliki {todaySessions.length} sesi terjadwal hari ini
+          </p>
+        )}
       </div>
 
       {/* Stats Cards Row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24, marginBottom: 40 }}>
-        <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#EFF6FF", display: "grid", placeItems: "center", color: "#2563EB" }}>
-            <Calendar size={20} />
-          </div>
-          <div>
-            <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Sesi Hari Ini</span>
-            <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{todaySessions.length}</strong>
-          </div>
-        </div>
+        {loading ? (
+          [...Array(4)].map((_, i) => (
+            <div key={i} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
+              <div className="skeleton-pulse" style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#E2E8F0" }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+                <div className="skeleton-pulse" style={{ height: 14, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                <div className="skeleton-pulse" style={{ height: 22, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#EFF6FF", display: "grid", placeItems: "center", color: "#2563EB" }}>
+                <Calendar size={20} />
+              </div>
+              <div>
+                <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Sesi Hari Ini</span>
+                <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{todaySessions.length}</strong>
+              </div>
+            </div>
 
-        <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#D1FAE5", display: "grid", placeItems: "center", color: "#10B981" }}>
-            <CheckCircle2 size={20} />
-          </div>
-          <div>
-            <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Selesai</span>
-            <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{completedCount}</strong>
-          </div>
-        </div>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#D1FAE5", display: "grid", placeItems: "center", color: "#10B981" }}>
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Selesai</span>
+                <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{completedCount}</strong>
+              </div>
+            </div>
 
-        <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#FEF3C7", display: "grid", placeItems: "center", color: "#F59E0B" }}>
-            <AlertCircle size={20} />
-          </div>
-          <div>
-            <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Perlu Konfirmasi</span>
-            <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{pendingCount}</strong>
-          </div>
-        </div>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#FEF3C7", display: "grid", placeItems: "center", color: "#F59E0B" }}>
+                <AlertCircle size={20} />
+              </div>
+              <div>
+                <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Perlu Konfirmasi</span>
+                <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{pendingCount}</strong>
+              </div>
+            </div>
 
-        <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#F3E8FF", display: "grid", placeItems: "center", color: "#8B5CF6" }}>
-            <Calendar size={20} />
-          </div>
-          <div>
-            <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Sesi Minggu Ini</span>
-            <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{weekSessionsCount}</strong>
-          </div>
-        </div>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 24, border: "1px solid #E2E8F0", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: "#F3E8FF", display: "grid", placeItems: "center", color: "#8B5CF6" }}>
+                <Calendar size={20} />
+              </div>
+              <div>
+                <span style={{ fontSize: 13, color: "#64748B", fontWeight: 600 }}>Sesi Minggu Ini</span>
+                <strong style={{ display: "block", fontSize: 24, fontWeight: 800, color: "#0F172A", marginTop: 2 }}>{weekSessionsCount}</strong>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Grid Layout: Sessions (Left) and Notifications (Right) */}
@@ -171,7 +200,13 @@ export default function PsychologistDashboardPage() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {loading ? (
-              <p style={{ color: "#64748B", fontSize: 13 }}>Memuat notifikasi...</p>
+              [...Array(3)].map((_, i) => (
+                <div key={i} style={{ backgroundColor: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="skeleton-pulse" style={{ height: 14, width: "90%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                  <div className="skeleton-pulse" style={{ height: 14, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                  <div className="skeleton-pulse" style={{ height: 11, width: "30%", backgroundColor: "#E2E8F0", borderRadius: 4, marginTop: 4 }} />
+                </div>
+              ))
             ) : notifications.length === 0 ? (
               <div style={{ textAlign: "center", padding: "24px 0", color: "#94A3B8" }}>
                 <AlertCircle size={28} style={{ margin: "0 auto 8px", opacity: 0.3 }} />

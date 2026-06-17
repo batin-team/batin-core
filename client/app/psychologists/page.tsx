@@ -229,6 +229,51 @@ export default function PsychologistsPage() {
     return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(val);
   };
 
+  const SkeletonCard = () => (
+    <div style={{ minWidth: 260, width: 260, backgroundColor: "#FFF", borderRadius: 16, border: "1px solid #E2E8F0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div className="skeleton-pulse" style={{ height: 260, width: "100%", backgroundColor: "#F1F5F9" }} />
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1, textAlign: "left" }}>
+        <div className="skeleton-pulse" style={{ height: 20, width: "70%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 12 }} />
+        <div className="skeleton-pulse" style={{ height: 16, width: "50%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 16 }} />
+        <div style={{ marginBottom: 16 }}>
+          <div className="skeleton-pulse" style={{ height: 12, width: "30%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 6 }} />
+          <div className="skeleton-pulse" style={{ height: 22, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        </div>
+        <p style={{ height: 12, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 8 }} className="skeleton-pulse" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          <div className="skeleton-pulse" style={{ height: 28, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          <div className="skeleton-pulse" style={{ height: 28, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 8, marginTop: "auto" }}>
+          <div className="skeleton-pulse" style={{ height: 36, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          <div className="skeleton-pulse" style={{ height: 36, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+        </div>
+      </div>
+    </div>
+  );
+
+  const SkeletonListCard = () => (
+    <div className="psychologist-list-card">
+      <div className="psychologist-list-card-image skeleton-pulse" style={{ backgroundColor: "#F1F5F9" }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="skeleton-pulse" style={{ height: 16, width: "30%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        <div className="skeleton-pulse" style={{ height: 22, width: "50%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        <div className="skeleton-pulse" style={{ height: 16, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+        <div style={{ marginTop: 8 }}>
+          <div className="skeleton-pulse" style={{ height: 14, width: 100, backgroundColor: "#E2E8F0", borderRadius: 4, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="skeleton-pulse" style={{ height: 28, width: 120, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+            <div className="skeleton-pulse" style={{ height: 28, width: 120, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          </div>
+        </div>
+      </div>
+      <div className="psychologist-list-card-actions" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="skeleton-pulse" style={{ height: 38, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+        <div className="skeleton-pulse" style={{ height: 38, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+      </div>
+    </div>
+  );
+
   const HorizontalCard = ({ p }: { p: Psychologist }) => (
     <div style={{ minWidth: 260, width: 260, backgroundColor: "#FFF", borderRadius: 16, border: "1px solid #E2E8F0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       <div style={{ height: 260, width: "100%", backgroundColor: "#F1F5F9", position: "relative" }}>
@@ -343,6 +388,17 @@ export default function PsychologistsPage() {
 
   return (
     <div className="page-shell" style={{ backgroundColor: "#F8FAFC" }}>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .4; }
+          }
+          .skeleton-pulse {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+        `
+      }} />
       <NavBar active="psychologists" />
 
       {/* Header Banner */}
@@ -475,7 +531,50 @@ export default function PsychologistsPage() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 48, minWidth: 0, paddingBottom: 60 }}>
 
           {isLoading ? (
-            <p>Memuat daftar psikolog...</p>
+            <>
+              {/* Section 1 Skeleton: Horizontal Scroll */}
+              <div style={{ marginBottom: 32 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div className="skeleton-pulse" style={{ width: 28, height: 28, backgroundColor: "#E2E8F0", borderRadius: "50%" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div className="skeleton-pulse" style={{ height: 20, width: 200, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                      <div className="skeleton-pulse" style={{ height: 14, width: 250, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="hide-scrollbar" style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 16 }}>
+                  {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+                </div>
+              </div>
+
+              {/* Section 2 Skeleton: Horizontal Scroll */}
+              <div style={{ marginBottom: 32 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div className="skeleton-pulse" style={{ width: 28, height: 28, backgroundColor: "#E2E8F0", borderRadius: "50%" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div className="skeleton-pulse" style={{ height: 20, width: 200, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                      <div className="skeleton-pulse" style={{ height: 14, width: 250, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="hide-scrollbar" style={{ display: "flex", gap: 16, overflowX: "auto", paddingBottom: 16 }}>
+                  {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+                </div>
+              </div>
+
+              {/* Section 3 Skeleton: Vertical List */}
+              <div>
+                <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div className="skeleton-pulse" style={{ height: 20, width: 200, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                  <div className="skeleton-pulse" style={{ height: 14, width: 250, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {[...Array(3)].map((_, i) => <SkeletonListCard key={i} />)}
+                </div>
+              </div>
+            </>
           ) : isFiltered ? (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>

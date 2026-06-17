@@ -69,8 +69,57 @@ export function ClientSessionDetail({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <section className="panel">
-        <p>Memuat rincian detail sesi...</p>
+      <section className="dashboard-grid">
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: .4; }
+            }
+            .skeleton-pulse {
+              animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+          `
+        }} />
+        {/* Left Panel Skeleton */}
+        <div className="panel" style={{ display: "flex", flexDirection: "column", gap: 24, flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+              <div className="skeleton-pulse" style={{ height: 32, width: 200, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              <div className="skeleton-pulse" style={{ height: 16, width: 100, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+            </div>
+            <div className="skeleton-pulse" style={{ height: 24, width: 100, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          </div>
+
+          <div className="muted-box" style={{ display: "flex", gap: 16, alignItems: "center", padding: 20 }}>
+            <div className="skeleton-pulse" style={{ width: 64, height: 64, borderRadius: "50%", backgroundColor: "#E2E8F0", flexShrink: 0 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+              <div className="skeleton-pulse" style={{ height: 22, width: "60%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+              <div className="skeleton-pulse" style={{ height: 16, width: "40%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+            <div className="muted-box skeleton-pulse" style={{ height: 80, backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+            <div className="muted-box skeleton-pulse" style={{ height: 80, backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+          </div>
+
+          <div className="muted-box skeleton-pulse" style={{ height: 64, backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
+            <div className="skeleton-pulse" style={{ height: 44, width: 150, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+            <div className="skeleton-pulse" style={{ height: 44, width: 150, backgroundColor: "#E2E8F0", borderRadius: 8 }} />
+          </div>
+        </div>
+
+        {/* Right Panel Skeleton */}
+        <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16, width: 320, flexShrink: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="skeleton-pulse" style={{ height: 28, width: 150, backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+            <div className="skeleton-pulse" style={{ height: 16, width: "80%", backgroundColor: "#E2E8F0", borderRadius: 4 }} />
+          </div>
+          <div className="skeleton-pulse" style={{ height: 120, width: "100%", backgroundColor: "#E2E8F0", borderRadius: 12 }} />
+        </aside>
       </section>
     );
   }
