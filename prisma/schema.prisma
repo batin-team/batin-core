@@ -221,6 +221,8 @@ model Payment {
   midtransTransactionId String?       @map("midtrans_transaction_id")
   paidAt                DateTime?     @map("paid_at")
   receiptUrl            String?       @map("receipt_url")
+  voucherCode           String?       @map("voucher_code")
+  discountAmount        Int           @default(0) @map("discount_amount")
 
   @@map("payments")
 }
@@ -386,3 +388,25 @@ model AuditLog {
   metadata  Json?
   createdAt DateTime @default(now())
 }
+
+model Voucher {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  name              String
+  description       String?
+  discountType      String    @map("discount_type") // "FIXED" or "PERCENTAGE"
+  discountValue     Int       @map("discount_value")
+  maxDiscountAmount Int?      @map("max_discount_amount")
+  minOrderAmount    Int?      @map("min_order_amount")
+  quota             Int       @default(0)
+  usedCount         Int       @default(0) @map("used_count")
+  isActive          Boolean   @default(true) @map("is_active")
+  packages          String[]  @default([]) // e.g. ["ONLINE", "OFFLINE"]
+  validFrom         DateTime? @map("valid_from")
+  validUntil        DateTime? @map("valid_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("vouchers")
+}
+

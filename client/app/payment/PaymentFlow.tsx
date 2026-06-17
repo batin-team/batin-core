@@ -77,14 +77,88 @@ export function PaymentFlow() {
   const [booking, setBooking] = useState<PendingBooking | null>(null);
   const [selectedMethod, setSelectedMethod] = useState("Virtual Account");
 
+  const [voucherCodeInput, setVoucherCodeInput] = useState("");
+  const [appliedVoucher, setAppliedVoucher] = useState<{
+    code: string;
+    name: string;
+    discountType: string;
+    discountValue: number;
+    discountAmount: number;
+  } | null>(null);
+  const [isApplyingVoucher, setIsApplyingVoucher] = useState(false);
+  const [voucherError, setVoucherError] = useState("");
+
   useEffect(() => {
     const raw = localStorage.getItem("mindbridge_pending_booking");
     if (!raw) {
       router.replace("/booking");
       return;
     }
-    setBooking(JSON.parse(raw) as PendingBooking);
+    const parsed = JSON.parse(raw) as PendingBooking;
+    setBooking(parsed);
+
+    // Sync current payment state from server
+    apiFetch(`/api/payments/${parsed.id}`)
+      .then((res) => {
+        if (res.data && res.data.voucherCode) {
+          setAppliedVoucher({
+            code: res.data.voucherCode,
+            name: `Voucher ${res.data.voucherCode}`,
+            discountType: "FIXED",
+            discountValue: res.data.discountAmount,
+            discountAmount: res.data.discountAmount
+          });
+          setVoucherCodeInput(res.data.voucherCode);
+        }
+      })
+      .catch((err) => console.error("Error syncing payment details:", err));
   }, [router]);
+
+  async function handleApplyVoucher() {
+    if (!booking) return;
+    if (!voucherCodeInput.trim()) {
+      setVoucherError("Silakan masukkan kode voucher");
+      return;
+    }
+    setIsApplyingVoucher(true);
+    setVoucherError("");
+    try {
+      const res = await apiFetch(`/api/payments/${booking.id}/apply-voucher`, {
+        method: "POST",
+        body: JSON.stringify({ code: voucherCodeInput })
+      });
+      if (res.error) {
+        setVoucherError(res.error);
+      } else if (res.success) {
+        setAppliedVoucher(res.voucher);
+      }
+    } catch (err: any) {
+      setVoucherError(err.message || "Gagal menerapkan voucher");
+    } finally {
+      setIsApplyingVoucher(false);
+    }
+  }
+
+  async function handleCancelVoucher() {
+    if (!booking) return;
+    setIsApplyingVoucher(true);
+    setVoucherError("");
+    try {
+      const res = await apiFetch(`/api/payments/${booking.id}/cancel-voucher`, {
+        method: "POST"
+      });
+      if (res.error) {
+        setVoucherError(res.error);
+      } else if (res.success) {
+        setAppliedVoucher(null);
+        setVoucherCodeInput("");
+      }
+    } catch (err: any) {
+      setVoucherError(err.message || "Gagal membatalkan voucher");
+    } finally {
+      setIsApplyingVoucher(false);
+    }
+  }
 
   async function handlePay() {
     if (!booking) return;
@@ -294,6 +368,86 @@ export function PaymentFlow() {
             )}
           </div>
 
+          {/* Voucher input form */}
+          <div style={{ borderTop: "1px solid #F1F5F9", paddingTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <span style={{ fontSize: 14, color: "#475569", fontWeight: 600 }}>Voucher Diskon</span>
+            
+            {appliedVoucher ? (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: "#F0FDF4",
+                border: "1px solid #BBF7D0",
+                padding: "10px 14px",
+                borderRadius: 12,
+                transition: "all 0.2s"
+              }}>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 13, color: "#166534", fontWeight: 700 }}>{appliedVoucher.code}</span>
+                  <span style={{ fontSize: 11, color: "#15803d", fontWeight: 500 }}>Hemat {formatCurrency(appliedVoucher.discountAmount)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelVoucher}
+                  disabled={isApplyingVoucher}
+                  style={{
+                    backgroundColor: "transparent",
+                    border: "none",
+                    color: "#DC2626",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    padding: "4px 8px"
+                  }}
+                >
+                  Batal
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Masukkan kode voucher"
+                  value={voucherCodeInput}
+                  onChange={(e) => setVoucherCodeInput(e.target.value)}
+                  disabled={isApplyingVoucher}
+                  style={{
+                    flex: 1,
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    border: "1px solid #CBD5E1",
+                    fontSize: 14,
+                    outline: "none",
+                    transition: "border-color 0.2s"
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyVoucher}
+                  disabled={isApplyingVoucher}
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: 10,
+                    border: "none",
+                    backgroundColor: "#2563EB",
+                    color: "#FFFFFF",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "background-color 0.2s"
+                  }}
+                >
+                  {isApplyingVoucher ? "..." : "Gunakan"}
+                </button>
+              </div>
+            )}
+
+            {voucherError && (
+              <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 600 }}>{voucherError}</span>
+            )}
+          </div>
+
           {/* Pricing shaded box */}
           <div style={{ backgroundColor: "#F0F7FF", borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -308,11 +462,20 @@ export function PaymentFlow() {
               <span style={{ fontSize: 14, color: "#0F172A", fontWeight: 700 }}>{formatCurrency(35000)}</span>
             </div>
 
+            {appliedVoucher && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 14, color: "#166534", fontWeight: 600 }}>Diskon ({appliedVoucher.code})</span>
+                <span style={{ fontSize: 14, color: "#166534", fontWeight: 700 }}>-{formatCurrency(appliedVoucher.discountAmount)}</span>
+              </div>
+            )}
+
             <div style={{ borderTop: "1px solid #BFDBFE", margin: "6px 0" }} />
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 15, color: "#0F172A", fontWeight: 800 }}>Total</span>
-              <span style={{ fontSize: 18, color: "#2563EB", fontWeight: 800 }}>{formatCurrency(booking.amount)}</span>
+              <span style={{ fontSize: 18, color: "#2563EB", fontWeight: 800 }}>
+                {formatCurrency(appliedVoucher ? booking.amount - appliedVoucher.discountAmount : booking.amount)}
+              </span>
             </div>
           </div>
 

@@ -8,6 +8,7 @@
     "seed": "ts-node prisma/seed.ts",
     "start": "ts-node src/index.ts",
     "dev": "node scripts/kill-ports.js && concurrently \"ts-node src/index.ts\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
     "create-test-session": "ts-node src/create-test-session.ts"
   },
   "prisma": {

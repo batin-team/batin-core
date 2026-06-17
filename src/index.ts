@@ -558,7 +558,7 @@ app.post("/api/payments/webhook", async (c) => {
     if (payment) {
       const meet = await createMeetLink({ sessionId: payment.sessionId });
 
-      await prisma.$transaction([
+      const txs = [
         prisma.payment.update({
           where: { id: payment.id },
           data: {
@@ -575,7 +575,18 @@ app.post("/api/payments/webhook", async (c) => {
             googleMeetUrl: meet.meetUrl
           }
         })
-      ]);
+      ];
+
+      if (payment.voucherCode) {
+        txs.push(
+          prisma.voucher.update({
+            where: { code: payment.voucherCode },
+            data: { usedCount: { increment: 1 } }
+          }) as any
+        );
+      }
+
+      await prisma.$transaction(txs);
 
       // Record splits and ledger entries
       await RevenueService.recordTransactionAndSplits(payment.sessionId).catch((err) => {
@@ -608,8 +619,127 @@ app.get("/api/payments/:sessionId", async (c) => {
     data: {
       sessionId,
       status: payment?.status || "PENDING",
-      totalAmount: payment?.totalAmount || 385000
+      totalAmount: payment?.totalAmount || 385000,
+      voucherCode: payment?.voucherCode || null,
+      discountAmount: payment?.discountAmount || 0
     }
+  });
+});
+
+app.post("/api/payments/:sessionId/apply-voucher", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const body = await readObjectBody(c);
+  const code = String(body.code || "").trim().toUpperCase();
+
+  if (!code) {
+    return c.json({ error: "Kode voucher wajib diisi" }, 400);
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { sessionId },
+    include: { session: true }
+  });
+
+  if (!payment) {
+    return c.json({ error: "Data pembayaran tidak ditemukan" }, 404);
+  }
+
+  const voucher = await prisma.voucher.findUnique({
+    where: { code }
+  });
+
+  if (!voucher) {
+    return c.json({ error: "Kode voucher tidak valid" }, 400);
+  }
+
+  if (!voucher.isActive) {
+    return c.json({ error: "Voucher ini sudah tidak aktif" }, 400);
+  }
+
+  if (voucher.quota > 0 && voucher.usedCount >= voucher.quota) {
+    return c.json({ error: "Kuota voucher ini sudah habis" }, 400);
+  }
+
+  const now = new Date();
+  if (voucher.validFrom && now < voucher.validFrom) {
+    return c.json({ error: "Voucher ini belum mulai berlaku" }, 400);
+  }
+  if (voucher.validUntil && now > voucher.validUntil) {
+    return c.json({ error: "Voucher ini sudah kadaluarsa" }, 400);
+  }
+
+  if (voucher.packages && voucher.packages.length > 0) {
+    const sessionType = payment.session.sessionType;
+    if (!voucher.packages.includes(sessionType)) {
+      return c.json({ error: `Voucher ini hanya berlaku untuk sesi ${voucher.packages.join(", ")}` }, 400);
+    }
+  }
+
+  const sessionPrice = payment.amount - payment.platformFee;
+  if (voucher.minOrderAmount && sessionPrice < voucher.minOrderAmount) {
+    return c.json({ error: `Minimal transaksi untuk voucher ini adalah Rp ${voucher.minOrderAmount.toLocaleString("id-ID")}` }, 400);
+  }
+
+  let discount = 0;
+  if (voucher.discountType === "PERCENTAGE") {
+    discount = Math.round((sessionPrice * voucher.discountValue) / 100);
+    if (voucher.maxDiscountAmount && discount > voucher.maxDiscountAmount) {
+      discount = voucher.maxDiscountAmount;
+    }
+  } else {
+    discount = voucher.discountValue;
+  }
+
+  if (discount > sessionPrice) {
+    discount = sessionPrice;
+  }
+
+  const newTotalAmount = payment.amount - discount;
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      voucherCode: voucher.code,
+      discountAmount: discount,
+      totalAmount: newTotalAmount
+    }
+  });
+
+  return c.json({
+    success: true,
+    voucher: {
+      code: voucher.code,
+      name: voucher.name,
+      discountType: voucher.discountType,
+      discountValue: voucher.discountValue,
+      discountAmount: discount
+    },
+    newTotalAmount
+  });
+});
+
+app.post("/api/payments/:sessionId/cancel-voucher", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const payment = await prisma.payment.findUnique({
+    where: { sessionId }
+  });
+
+  if (!payment) {
+    return c.json({ error: "Data pembayaran tidak ditemukan" }, 404);
+  }
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      voucherCode: null,
+      discountAmount: 0,
+      totalAmount: payment.amount
+    }
+  });
+
+  return c.json({
+    success: true,
+    newTotalAmount: payment.amount
   });
 });
 
@@ -1652,6 +1782,120 @@ app.delete("/api/admin/leaves/:id", async (c) => {
   const id = c.req.param("id");
   await prisma.availabilitySlot.delete({ where: { id } });
   return c.json({ ok: true, id });
+});
+
+// Admin Vouchers CRUD
+app.get("/api/admin/vouchers", async (c) => {
+  const list = await prisma.voucher.findMany({
+    orderBy: { createdAt: "desc" }
+  });
+  return c.json({ data: list });
+});
+
+app.post("/api/admin/vouchers", async (c) => {
+  const body = await readObjectBody(c);
+  const code = String(body.code || "").trim().toUpperCase();
+  const name = String(body.name || "").trim();
+  const discountType = String(body.discountType || "FIXED");
+  const discountValue = Number(body.discountValue || 0);
+  const maxDiscountAmount = body.maxDiscountAmount !== undefined && body.maxDiscountAmount !== null ? Number(body.maxDiscountAmount) : null;
+  const minOrderAmount = body.minOrderAmount !== undefined && body.minOrderAmount !== null ? Number(body.minOrderAmount) : null;
+  const quota = Number(body.quota || 0);
+  const isActive = body.isActive === false ? false : true;
+  const packages = Array.isArray(body.packages) ? (body.packages as string[]) : [];
+  const validFrom = body.validFrom ? new Date(String(body.validFrom)) : null;
+  const validUntil = body.validUntil ? new Date(String(body.validUntil)) : null;
+  const description = body.description ? String(body.description) : null;
+
+  if (!code || !name) {
+    return c.json({ error: "Kode dan nama voucher wajib diisi" }, 400);
+  }
+
+  const existing = await prisma.voucher.findUnique({ where: { code } });
+  if (existing) {
+    return c.json({ error: "Kode voucher sudah digunakan" }, 400);
+  }
+
+  const voucher = await prisma.voucher.create({
+    data: {
+      code,
+      name,
+      discountType,
+      discountValue,
+      maxDiscountAmount,
+      minOrderAmount,
+      quota,
+      isActive,
+      packages,
+      validFrom,
+      validUntil,
+      description
+    }
+  });
+
+  return c.json({ data: voucher }, 201);
+});
+
+app.patch("/api/admin/vouchers/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await readObjectBody(c);
+  const code = body.code ? String(body.code).trim().toUpperCase() : undefined;
+  const name = body.name ? String(body.name).trim() : undefined;
+  const discountType = body.discountType ? String(body.discountType) : undefined;
+  const discountValue = body.discountValue !== undefined ? Number(body.discountValue) : undefined;
+  const maxDiscountAmount = body.maxDiscountAmount !== undefined ? (body.maxDiscountAmount !== null ? Number(body.maxDiscountAmount) : null) : undefined;
+  const minOrderAmount = body.minOrderAmount !== undefined ? (body.minOrderAmount !== null ? Number(body.minOrderAmount) : null) : undefined;
+  const quota = body.quota !== undefined ? Number(body.quota) : undefined;
+  const isActive = body.isActive !== undefined ? Boolean(body.isActive) : undefined;
+  const packages = Array.isArray(body.packages) ? (body.packages as string[]) : undefined;
+  const validFrom = body.validFrom !== undefined ? (body.validFrom ? new Date(String(body.validFrom)) : null) : undefined;
+  const validUntil = body.validUntil !== undefined ? (body.validUntil ? new Date(String(body.validUntil)) : null) : undefined;
+  const description = body.description !== undefined ? (body.description ? String(body.description) : null) : undefined;
+
+  if (code) {
+    const existing = await prisma.voucher.findUnique({ where: { code } });
+    if (existing && existing.id !== id) {
+      return c.json({ error: "Kode voucher sudah digunakan oleh voucher lain" }, 400);
+    }
+  }
+
+  const updated = await prisma.voucher.update({
+    where: { id },
+    data: {
+      code,
+      name,
+      discountType,
+      discountValue,
+      maxDiscountAmount,
+      minOrderAmount,
+      quota,
+      isActive,
+      packages,
+      validFrom,
+      validUntil,
+      description
+    }
+  });
+
+  return c.json({ data: updated });
+});
+
+app.delete("/api/admin/vouchers/:id", async (c) => {
+  const id = c.req.param("id");
+  await prisma.voucher.delete({ where: { id } });
+  return c.json({ ok: true, id });
+});
+
+app.patch("/api/admin/vouchers/:id/toggle", async (c) => {
+  const id = c.req.param("id");
+  const existing = await prisma.voucher.findUnique({ where: { id } });
+  if (!existing) return c.notFound();
+
+  const updated = await prisma.voucher.update({
+    where: { id },
+    data: { isActive: !existing.isActive }
+  });
+  return c.json({ data: updated });
 });
 
 // ─── END ADMIN ENDPOINTS ──────────────────────────────────────────────────────
