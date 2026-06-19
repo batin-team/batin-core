@@ -19,6 +19,13 @@ type StoredSession = {
   hasAttendance: boolean;
   createdAt: string;
   timeRange?: string;
+  assessment?: {
+    id: string;
+    score: number;
+    summary: string;
+    isHighRisk: boolean;
+    responses: Record<string, number>;
+  };
 };
 
 type CalendarView = "day" | "week" | "month";
@@ -102,6 +109,35 @@ function SessionCard({ session }: { session: StoredSession }) {
             Keluhan:
           </strong>
           "{session.clientNotes}"
+        </div>
+      )}
+
+      {session.assessment && (
+        <div style={{ fontSize: 12, color: "#475569", background: "rgba(99, 102, 241, 0.05)", borderRadius: 8, padding: "10px 14px", borderLeft: "3px solid #6366F1" }}>
+          <strong style={{ display: "block", fontSize: 10, color: "#6366F1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
+            Hasil Asesmen Triage Mandiri:
+          </strong>
+          <div style={{ marginBottom: 4 }}>
+            <strong>Skor:</strong> {session.assessment.score} / 20 ({session.assessment.summary})
+          </div>
+          {session.assessment.responses && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4, paddingLeft: 4, borderLeft: "1px solid #E2E8F0" }}>
+              {Object.entries(session.assessment.responses).map(([qId, val]) => {
+                const questionMap: Record<string, string> = {
+                  q1: "Kecemasan",
+                  q2: "Depresi",
+                  q3: "Burnout",
+                  q4: "Trauma"
+                };
+                const valMap = ["Tidak Pernah", "Jarang", "Kadang-Kadang", "Sering", "Sangat Sering"];
+                return (
+                  <div key={qId} style={{ fontSize: 11, color: "#475569" }}>
+                    <strong>{questionMap[qId] || qId}:</strong> {valMap[Number(val) - 1] || "Jarang"}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

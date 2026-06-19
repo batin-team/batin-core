@@ -51,6 +51,18 @@ export function DiscoveryDrawer({ isOpen, onClose }: DiscoveryDrawerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
 
+  const [bookingMode, setBookingMode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlMode = searchParams.get("mode");
+      if (urlMode) {
+        setBookingMode(urlMode);
+      }
+    }
+  }, [isOpen]);
+
   const questions = [
     {
       id: "q1",
@@ -682,7 +694,7 @@ export function DiscoveryDrawer({ isOpen, onClose }: DiscoveryDrawerProps) {
 
                 {/* CTAs */}
                 <a
-                  href="/booking?specialty=Kecemasan"
+                  href={`/booking?specialty=Kecemasan${assessmentResult?.id ? `&assessmentId=${assessmentResult.id}` : ""}${bookingMode ? `&mode=${bookingMode}` : ""}`}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                     marginTop: 8,

@@ -407,6 +407,8 @@ app.post("/api/sessions", async (c) => {
   const matched = psychologistsList.find(p => p.id === requestedPsychologistId) || matchPsychologist(body, sessionType, psychologistsList);
   const scheduledAt = new Date(String(body.scheduledAt || new Date().toISOString()));
 
+  const assessmentId = body.assessmentId ? String(body.assessmentId) : null;
+
   const session = await prisma.session.create({
     data: {
       clientId,
@@ -420,6 +422,7 @@ app.post("/api/sessions", async (c) => {
       meetingLng: typeof body.meetingLng === "number" ? body.meetingLng : null,
       clientIssues: Array.isArray(body.selectedSpecializations) ? (body.selectedSpecializations as string[]) : [],
       clientNotes: body.notes ? String(body.notes) : null,
+      assessmentId,
       payment: {
         create: {
           amount: matched.pricePerSession + 35000,
@@ -1202,7 +1205,8 @@ app.get("/api/psychologist/sessions", async (c) => {
         client: true,
         payment: true,
         notes: true,
-        attendance: true
+        attendance: true,
+        assessment: true
       },
       orderBy: { scheduledAt: "desc" }
     }),
@@ -1211,8 +1215,21 @@ app.get("/api/psychologist/sessions", async (c) => {
     })
   ]);
 
+  const listWithAssessment = await Promise.all(
+    list.map(async (s) => {
+      let assessment = s.assessment;
+      if (!assessment) {
+        assessment = await prisma.assessmentResponse.findFirst({
+          where: { clientId: s.clientId },
+          orderBy: { createdAt: "desc" }
+        });
+      }
+      return { ...s, assessment };
+    })
+  );
+
   return c.json({
-    data: list.map((s) => ({
+    data: listWithAssessment.map((s) => ({
       id: s.id,
       clientName: s.client.fullName,
       sessionType: s.sessionType,
@@ -1226,7 +1243,14 @@ app.get("/api/psychologist/sessions", async (c) => {
       hasNotes: !!s.notes,
       hasAttendance: !!s.attendance,
       createdAt: s.createdAt.toISOString(),
-      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots),
+      assessment: s.assessment ? {
+        id: s.assessment.id,
+        score: s.assessment.score,
+        summary: s.assessment.summary,
+        isHighRisk: s.assessment.isHighRisk,
+        responses: s.assessment.responses
+      } : undefined
     }))
   });
 });
@@ -1257,7 +1281,8 @@ app.get("/api/psychologist/sessions/today", async (c) => {
         client: true,
         payment: true,
         notes: true,
-        attendance: true
+        attendance: true,
+        assessment: true
       },
       orderBy: { scheduledAt: "asc" }
     }),
@@ -1266,8 +1291,21 @@ app.get("/api/psychologist/sessions/today", async (c) => {
     })
   ]);
 
+  const listWithAssessment = await Promise.all(
+    list.map(async (s) => {
+      let assessment = s.assessment;
+      if (!assessment) {
+        assessment = await prisma.assessmentResponse.findFirst({
+          where: { clientId: s.clientId },
+          orderBy: { createdAt: "desc" }
+        });
+      }
+      return { ...s, assessment };
+    })
+  );
+
   return c.json({
-    data: list.map((s) => ({
+    data: listWithAssessment.map((s) => ({
       id: s.id,
       clientName: s.client.fullName,
       sessionType: s.sessionType,
@@ -1281,7 +1319,14 @@ app.get("/api/psychologist/sessions/today", async (c) => {
       hasNotes: !!s.notes,
       hasAttendance: !!s.attendance,
       createdAt: s.createdAt.toISOString(),
-      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots),
+      assessment: s.assessment ? {
+        id: s.assessment.id,
+        score: s.assessment.score,
+        summary: s.assessment.summary,
+        isHighRisk: s.assessment.isHighRisk,
+        responses: s.assessment.responses
+      } : undefined
     }))
   });
 });
@@ -1290,13 +1335,21 @@ app.get("/api/psychologist/sessions/:id", async (c) => {
   const id = c.req.param("id");
   const s = await prisma.session.findUnique({
     where: { id },
-    include: { client: true, payment: true, notes: true, attendance: true }
+    include: { client: true, payment: true, notes: true, attendance: true, assessment: true }
   });
   if (!s) return c.notFound();
 
   const slots = await prisma.availabilitySlot.findMany({
     where: { psychologistId: s.psychologistId }
   });
+
+  let assessment = s.assessment;
+  if (!assessment) {
+    assessment = await prisma.assessmentResponse.findFirst({
+      where: { clientId: s.clientId },
+      orderBy: { createdAt: "desc" }
+    });
+  }
 
   return c.json({
     data: {
@@ -1312,7 +1365,14 @@ app.get("/api/psychologist/sessions/:id", async (c) => {
       clientNotes: s.clientNotes || undefined,
       hasNotes: !!s.notes,
       hasAttendance: !!s.attendance,
-      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots)
+      timeRange: getTimeRangeForSession(s.scheduledAt, s.psychologistId, slots),
+      assessment: assessment ? {
+        id: assessment.id,
+        score: assessment.score,
+        summary: assessment.summary,
+        isHighRisk: assessment.isHighRisk,
+        responses: assessment.responses
+      } : undefined
     }
   });
 });

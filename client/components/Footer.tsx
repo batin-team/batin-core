@@ -83,9 +83,9 @@ export function Footer() {
           <div className="footer-col">
             <h4>Layanan</h4>
             <div className="footer-links">
-              <Link href="/booking">Video/voice call</Link>
-              <Link href="/booking">Janji Tatap Muka</Link>
-              <Link href="/booking">Batin for Kids</Link>
+              <Link href="/booking?mode=online">Video/voice call</Link>
+              <Link href="/booking?mode=offline">Janji Tatap Muka</Link>
+              <Link href="/booking?mode=online">Batin for Kids</Link>
             </div>
           </div>
 

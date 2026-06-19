@@ -26,7 +26,11 @@ export class AssessmentService {
       where: { id: clientId }
     });
 
-    const clientName = clientUser?.fullName || "Klien";
+    if (!clientUser) {
+      throw new Error("Klien tidak ditemukan. Silakan masuk kembali.");
+    }
+
+    const clientName = clientUser.fullName || "Klien";
 
     // 3. Create AssessmentResponse
     const responseRecord = await prisma.assessmentResponse.create({

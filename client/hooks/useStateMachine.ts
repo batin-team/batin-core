@@ -19,7 +19,7 @@ export enum AssessmentState {
 export const assessmentTransitions: Record<AssessmentState, AssessmentState[]> = {
   [AssessmentState.IDLE]: [AssessmentState.QUESTIONNAIRE],
   [AssessmentState.QUESTIONNAIRE]: [AssessmentState.IDLE, AssessmentState.SCORING],
-  [AssessmentState.SCORING]: [AssessmentState.RESULT, AssessmentState.IDLE],
+  [AssessmentState.SCORING]: [AssessmentState.RESULT, AssessmentState.IDLE, AssessmentState.QUESTIONNAIRE],
   [AssessmentState.RESULT]: [AssessmentState.COMPLETED, AssessmentState.IDLE, AssessmentState.QUESTIONNAIRE],
   [AssessmentState.COMPLETED]: [AssessmentState.IDLE]
 };
@@ -39,12 +39,15 @@ export function useStateMachine<T extends string>(
   const [state, setState] = useState<T>(initialState);
 
   const transition = (nextState: T) => {
-    const allowed = transitions[state];
-    if (allowed && allowed.includes(nextState)) {
-      setState(nextState);
-    } else {
-      console.warn(`Transition from state "${state}" to "${nextState}" not allowed.`);
-    }
+    setState((currentState) => {
+      const allowed = transitions[currentState];
+      if (allowed && allowed.includes(nextState)) {
+        return nextState;
+      } else {
+        console.warn(`Transition from state "${currentState}" to "${nextState}" not allowed.`);
+        return currentState;
+      }
+    });
   };
 
   return [state, transition] as const;

@@ -22,6 +22,13 @@ type StoredSession = {
   hasAttendance: boolean;
   createdAt: string;
   timeRange?: string;
+  assessment?: {
+    id: string;
+    score: number;
+    summary: string;
+    isHighRisk: boolean;
+    responses: Record<string, number>;
+  };
 };
 
 export default function PsychologistDashboardPage() {

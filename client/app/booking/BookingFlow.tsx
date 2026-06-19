@@ -11,6 +11,7 @@ import {
   type Psychologist
 } from "@mindbridge/shared";
 import { apiFetch } from "../../lib/api";
+import { DiscoveryDrawer } from "../../components/DiscoveryDrawer";
 
 type BookingMode = "ONLINE" | "OFFLINE";
 type GenderPreference = "ANY" | "FEMALE" | "MALE";
@@ -28,14 +29,24 @@ const defaultMeetingLocation = {
   lng: 106.7816
 };
 
+const getTodayLocalDateStr = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export function BookingFlow() {
   const router = useRouter();
   const params = useSearchParams();
   const [isReady, setIsReady] = useState(false);
-  const [mode, setMode] = useState<BookingMode>("ONLINE");
+  const initialMode = (params.get("mode")?.toUpperCase() === "OFFLINE" ? "OFFLINE" : "ONLINE");
+  const [mode, setMode] = useState<BookingMode>(initialMode);
+  const [showAssessment, setShowAssessment] = useState(false);
   const [gender, setGender] = useState<GenderPreference>("ANY");
   const [selectedSpecializations, setSelectedSpecializations] = useState<string[]>(["Kecemasan"]);
-  const [date, setDate] = useState(params.get("date") ?? "2026-06-05");
+  const [date, setDate] = useState(params.get("date") ?? getTodayLocalDateStr());
   const [time, setTime] = useState(params.get("time") ?? "");
   const [meetingAddress, setMeetingAddress] = useState(defaultMeetingLocation.label);
   const [meetingLat, setMeetingLat] = useState(defaultMeetingLocation.lat);
@@ -82,6 +93,29 @@ export function BookingFlow() {
     }
     loadData();
   }, [router, params]);
+
+  useEffect(() => {
+    const urlMode = params.get("mode")?.toUpperCase();
+    if (urlMode === "ONLINE" || urlMode === "OFFLINE") {
+      setMode(urlMode);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    const hasSpecialty = params.get("specialty");
+    const hasPsychologist = params.get("psychologist") || params.get("psychologistId");
+    
+    if (!hasSpecialty && !hasPsychologist) {
+      setShowAssessment(true);
+    } else {
+      setShowAssessment(false);
+    }
+  }, [params]);
+
+  function handleAssessmentClose() {
+    setShowAssessment(false);
+    router.push("/");
+  }
 
   const slotKey = time ? toSlotKey(date, time) : "";
 
@@ -164,7 +198,8 @@ export function BookingFlow() {
           meetingLat: mode === "OFFLINE" ? meetingLat : undefined,
           meetingLng: mode === "OFFLINE" ? meetingLng : undefined,
           selectedSpecializations,
-          notes
+          notes,
+          assessmentId: params.get("assessmentId") || undefined
         })
       });
 
@@ -237,7 +272,7 @@ export function BookingFlow() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <label htmlFor="date" style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>Tanggal sesi</label>
-              <input id="date" type="date" value={date} onChange={(event) => setDate(event.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid #CBD5E1", backgroundColor: "#F8FAFC", fontSize: 14, color: "#0F172A", outline: "none", cursor: "pointer" }} />
+              <input id="date" type="date" min={getTodayLocalDateStr()} value={date} onChange={(event) => setDate(event.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid #CBD5E1", backgroundColor: "#F8FAFC", fontSize: 14, color: "#0F172A", outline: "none", cursor: "pointer" }} />
             </div>
           </div>
 
@@ -454,6 +489,7 @@ export function BookingFlow() {
           )}
         </aside>
       </section>
+      <DiscoveryDrawer isOpen={showAssessment} onClose={handleAssessmentClose} />
     </>
   );
 }

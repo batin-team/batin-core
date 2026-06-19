@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Calendar, CreditCard, Download, FileText, MapPin, Star, Video } from "lucide-react";
 import { formatCurrency, type Session } from "@mindbridge/shared";
@@ -22,6 +23,7 @@ type StoredSession = Session & {
 import { apiFetch } from "../../../../lib/api";
 
 export function ClientSessionDetail({ id }: { id: string }) {
+  const router = useRouter();
   const [session, setSession] = useState<StoredSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userRating, setUserRating] = useState(5);
@@ -124,6 +126,30 @@ export function ClientSessionDetail({ id }: { id: string }) {
     );
   }
 
+  const handlePayNow = () => {
+    if (!session) return;
+    
+    const pendingBooking = {
+      id: session.id,
+      clientName: session.clientName || "Client Batin",
+      psychologistId: session.psychologistId,
+      psychologist: {
+        name: session.psychologistName || "",
+        title: session.psychologistTitle || "",
+        pricePerSession: session.amount - 35000
+      },
+      sessionType: session.sessionType,
+      status: session.status,
+      scheduledAt: session.scheduledAt,
+      amount: session.amount,
+      location: session.location || undefined,
+      assignmentMethod: session.assignmentMethod || "AUTO_ASSIGN"
+    };
+    
+    localStorage.setItem("mindbridge_pending_booking", JSON.stringify(pendingBooking));
+    router.push("/payment");
+  };
+
   if (!session) {
     return (
       <section className="panel">
@@ -200,9 +226,24 @@ export function ClientSessionDetail({ id }: { id: string }) {
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
-          <Link className="button button-primary" href={`/receipt?id=${session.id}`}>
-            <Download size={18} /> Unduh Kwitansi
-          </Link>
+          {session.status === "PENDING_PAYMENT" ? (
+            <>
+              <button 
+                className="button button-primary" 
+                onClick={handlePayNow} 
+                style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}
+              >
+                <CreditCard size={18} /> Bayar Sekarang
+              </button>
+              <Link className="button button-secondary" href={`/receipt?id=${session.id}`}>
+                <Download size={18} /> Unduh Kwitansi
+              </Link>
+            </>
+          ) : (
+            <Link className="button button-primary" href={`/receipt?id=${session.id}`}>
+              <Download size={18} /> Unduh Kwitansi
+            </Link>
+          )}
           {session.hasNotes ? (
             <Link className="button button-secondary" href={`/notes-preview?id=${session.id}`}>
               <FileText size={18} /> Lihat Catatan

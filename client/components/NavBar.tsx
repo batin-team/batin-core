@@ -101,9 +101,9 @@ export function NavBar({ active = "home" }: NavBarProps) {
             </button>
             {layananOpen && (
               <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", backgroundColor: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 0", minWidth: 200, boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)", zIndex: 50, marginTop: -8 }}>
-                <Link href="/booking" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Konseling Online</Link>
-                <Link href="/booking" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Konseling Offline</Link>
-                <Link href="/booking" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Batin for Kids</Link>
+                <Link href="/booking?mode=online" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Konseling Online</Link>
+                <Link href="/booking?mode=offline" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Konseling Offline</Link>
+                <Link href="/booking?mode=online" style={{ display: "block", padding: "10px 20px", color: "#475569", fontSize: 14, textDecoration: "none" }}>Batin for Kids</Link>
               </div>
             )}
           </div>
@@ -181,7 +181,7 @@ export function NavBar({ active = "home" }: NavBarProps) {
               )}
             </div>
           )}
-          <Link href="/booking" style={{ backgroundColor: "#0044CC", color: "#FFFFFF", padding: "10px 20px", borderRadius: 8, fontWeight: 700, fontSize: 14, textDecoration: "none", display: "inline-block", transition: "background-color 0.2s" }} onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#0033AA"} onMouseOut={(e) => e.currentTarget.style.backgroundColor = "#0044CC"}>
+          <Link href="/booking?mode=online" style={{ backgroundColor: "#0044CC", color: "#FFFFFF", padding: "10px 20px", borderRadius: 8, fontWeight: 700, fontSize: 14, textDecoration: "none", display: "inline-block", transition: "background-color 0.2s" }} onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#0033AA"} onMouseOut={(e) => e.currentTarget.style.backgroundColor = "#0044CC"}>
             Konseling Sekarang
           </Link>
         </div>
@@ -232,9 +232,9 @@ export function NavBar({ active = "home" }: NavBarProps) {
               <div style={{ borderBottom: "1px solid #F1F5F9", paddingBottom: 12 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Layanan Konseling</span>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingLeft: 8 }}>
-                  <Link href="/booking" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Konseling Online</Link>
-                  <Link href="/booking" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Konseling Offline</Link>
-                  <Link href="/booking" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Batin for Kids</Link>
+                  <Link href="/booking?mode=online" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Konseling Online</Link>
+                  <Link href="/booking?mode=offline" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Konseling Offline</Link>
+                  <Link href="/booking?mode=online" onClick={() => setMobileMenuOpen(false)} style={{ color: "#1E293B", fontSize: 16, fontWeight: 600, textDecoration: "none" }}>Batin for Kids</Link>
                 </div>
               </div>
 
@@ -277,7 +277,7 @@ export function NavBar({ active = "home" }: NavBarProps) {
                   Masuk / Daftar Akun
                 </Link>
               )}
-              <Link href="/booking" onClick={() => setMobileMenuOpen(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "14px", backgroundColor: "#0044CC", borderRadius: 8, color: "#FFFFFF", fontWeight: 700, fontSize: 15, textDecoration: "none" }}>
+              <Link href="/booking?mode=online" onClick={() => setMobileMenuOpen(false)} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", padding: "14px", backgroundColor: "#0044CC", borderRadius: 8, color: "#FFFFFF", fontWeight: 700, fontSize: 15, textDecoration: "none" }}>
                 Konseling Sekarang
               </Link>
             </div>
