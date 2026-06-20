@@ -125,6 +125,8 @@ async function main() {
   await prisma.payment.deleteMany();
   await prisma.ledgerEntry.deleteMany();
   await prisma.transaction.deleteMany();
+  await prisma.walletEntry.deleteMany();
+  await prisma.withdrawal.deleteMany();
   await prisma.session.deleteMany();
   await prisma.availabilitySlot.deleteMany();
   await prisma.psychologistSpecialization.deleteMany();
@@ -145,7 +147,11 @@ async function main() {
   await prisma.platformSetting.createMany({
     data: [
       { key: "member_split", value: "0.70" },
-      { key: "partner_commission", value: "0.15" }
+      { key: "partner_commission", value: "0.15" },
+      // Commission feature: single global commission rate (platform's cut) and
+      // a flat admin fee charged per withdrawal. Both editable from the admin UI.
+      { key: "commission_rate", value: "0.20" },
+      { key: "withdrawal_admin_fee", value: "5000" }
     ]
   });
 
@@ -235,6 +241,7 @@ async function main() {
             dayOfWeek,
             startTime: slot.start,
             endTime: slot.end,
+            serviceMode: psy.serviceMode,
             isRecurring: true
           }
         });

@@ -11,6 +11,8 @@ import { sendBookingConfirmation } from "./services/notification.service";
 import { logAudit } from "./middleware/audit";
 import { RevenueService } from "./services/revenue.service";
 import { AssessmentService } from "./services/assessment.service";
+import { createDisbursement, parseDisbursementWebhook } from "./services/disbursement.service";
+import { Prisma } from "@prisma/client";
 
 export const app = new Hono();
 export default app;
@@ -591,10 +593,9 @@ app.post("/api/payments/webhook", async (c) => {
 
       await prisma.$transaction(txs);
 
-      // Record splits and ledger entries
-      await RevenueService.recordTransactionAndSplits(payment.sessionId).catch((err) => {
-        console.error("Failed to record split transaction:", err);
-      });
+      // NOTE: Commission/earning is NOT recorded here. It is recorded only when
+      // the session is COMPLETED (attendance + notes present) — see
+      // checkAndUpdateSessionCompletion -> RevenueService.recordEarningOnCompletion.
 
       // Audit log
       await logAudit({
@@ -778,6 +779,11 @@ async function checkAndUpdateSessionCompletion(sessionId: string) {
     await prisma.session.update({
       where: { id: sessionId },
       data: { status: "COMPLETED" }
+    });
+
+    // Credit the psychologist's wallet with their share (idempotent).
+    await RevenueService.recordEarningOnCompletion(sessionId).catch((err) => {
+      console.error("Failed to record earning on completion:", err);
     });
   }
 }
@@ -1006,6 +1012,9 @@ app.get("/api/psychologist/profile", async (c) => {
       ...matchedProfile,
       licenseNumber: profile.licenseNumber,
       homeAddress: profile.homeAddress,
+      bankName: profile.bankName || "",
+      bankAccountNumber: profile.bankAccountNumber || "",
+      bankAccountHolder: profile.bankAccountHolder || "",
       slotsWithStatus,
       blockedDates: Array.from(blockedDates),
       leaves: profile.availabilitySlots
@@ -1043,7 +1052,10 @@ app.patch("/api/psychologist/profile", async (c) => {
         gender: body.gender !== undefined ? (body.gender as any) : undefined,
         serviceMode: body.serviceMode !== undefined ? (body.serviceMode as any) : undefined,
         pricePerSession: typeof body.pricePerSession === "number" ? body.pricePerSession : (body.pricePerSession ? Number(body.pricePerSession) : undefined),
-        homeAddress: body.homeAddress !== undefined ? String(body.homeAddress) : undefined
+        homeAddress: body.homeAddress !== undefined ? String(body.homeAddress) : undefined,
+        bankName: body.bankName !== undefined ? String(body.bankName || "") : undefined,
+        bankAccountNumber: body.bankAccountNumber !== undefined ? String(body.bankAccountNumber || "") : undefined,
+        bankAccountHolder: body.bankAccountHolder !== undefined ? String(body.bankAccountHolder || "") : undefined
       }
     });
 
@@ -1073,6 +1085,302 @@ app.patch("/api/psychologist/profile", async (c) => {
     return c.json({ data: updated });
   }
   return c.notFound();
+});
+
+// ─── PSYCHOLOGIST WALLET & WITHDRAWALS ──────────────────────────────────────
+
+// A psychologist may request at most this many withdrawals per calendar month.
+// FAILED (reversed) withdrawals do not count against the quota.
+const MAX_WITHDRAWALS_PER_MONTH = 2;
+
+/** Counts non-failed withdrawals made in the current calendar month. */
+async function countWithdrawalsThisMonth(psychologistId: string): Promise<number> {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  return prisma.withdrawal.count({
+    where: {
+      psychologistId,
+      status: { not: "FAILED" },
+      createdAt: { gte: startOfMonth }
+    }
+  });
+}
+
+/** Resolves the psychologist profile for the current request (by x-user-id). */
+async function resolvePsychologistProfile(c: Context) {
+  const userId = c.req.header("x-user-id");
+  return userId
+    ? prisma.psychologistProfile.findFirst({ where: { userId } })
+    : prisma.psychologistProfile.findFirst();
+}
+
+app.get("/api/psychologist/wallet", async (c) => {
+  const profile = await resolvePsychologistProfile(c);
+  if (!profile) return c.json({ error: "Profil psikolog tidak ditemukan" }, 404);
+
+  const [entries, withdrawals] = await Promise.all([
+    prisma.walletEntry.findMany({
+      where: { psychologistId: profile.id },
+      orderBy: { createdAt: "desc" },
+      take: 20
+    }),
+    prisma.withdrawal.findMany({
+      where: { psychologistId: profile.id },
+      orderBy: { createdAt: "desc" },
+      take: 20
+    })
+  ]);
+
+  const balance = await RevenueService.getWalletBalance(profile.id);
+  const withdrawalAdminFee = await RevenueService.getNumericSetting("withdrawal_admin_fee", 5000);
+  const withdrawalsThisMonth = await countWithdrawalsThisMonth(profile.id);
+
+  const totalEarned = await prisma.walletEntry.aggregate({
+    where: { psychologistId: profile.id, type: "EARNING" },
+    _sum: { amount: true }
+  });
+  const totalWithdrawn = await prisma.withdrawal.aggregate({
+    where: { psychologistId: profile.id, status: "COMPLETED" },
+    _sum: { netAmount: true }
+  });
+
+  return c.json({
+    data: {
+      balance,
+      withdrawalAdminFee,
+      withdrawalsThisMonth,
+      maxWithdrawalsPerMonth: MAX_WITHDRAWALS_PER_MONTH,
+      withdrawalsRemaining: Math.max(0, MAX_WITHDRAWALS_PER_MONTH - withdrawalsThisMonth),
+      totalEarned: Number(totalEarned._sum.amount ?? 0),
+      totalWithdrawn: Number(totalWithdrawn._sum.netAmount ?? 0),
+      bankName: profile.bankName || "",
+      bankAccountNumber: profile.bankAccountNumber || "",
+      bankAccountHolder: profile.bankAccountHolder || "",
+      hasBankAccount: Boolean(profile.bankName && profile.bankAccountNumber && profile.bankAccountHolder),
+      entries: entries.map((e) => ({
+        id: e.id,
+        type: e.type,
+        amount: Number(e.amount),
+        description: e.description || "",
+        createdAt: e.createdAt.toISOString()
+      })),
+      withdrawals: withdrawals.map((w) => ({
+        id: w.id,
+        amount: Number(w.amount),
+        adminFee: Number(w.adminFee),
+        netAmount: Number(w.netAmount),
+        status: w.status,
+        bankName: w.bankName,
+        bankAccountNumber: w.bankAccountNumber,
+        bankAccountHolder: w.bankAccountHolder,
+        failureReason: w.failureReason || "",
+        createdAt: w.createdAt.toISOString(),
+        processedAt: w.processedAt ? w.processedAt.toISOString() : ""
+      }))
+    }
+  });
+});
+
+app.get("/api/psychologist/withdrawals", async (c) => {
+  const profile = await resolvePsychologistProfile(c);
+  if (!profile) return c.json({ error: "Profil psikolog tidak ditemukan" }, 404);
+
+  const withdrawals = await prisma.withdrawal.findMany({
+    where: { psychologistId: profile.id },
+    orderBy: { createdAt: "desc" }
+  });
+
+  return c.json({
+    data: withdrawals.map((w) => ({
+      id: w.id,
+      amount: Number(w.amount),
+      adminFee: Number(w.adminFee),
+      netAmount: Number(w.netAmount),
+      status: w.status,
+      bankName: w.bankName,
+      bankAccountNumber: w.bankAccountNumber,
+      bankAccountHolder: w.bankAccountHolder,
+      failureReason: w.failureReason || "",
+      createdAt: w.createdAt.toISOString(),
+      processedAt: w.processedAt ? w.processedAt.toISOString() : ""
+    }))
+  });
+});
+
+app.post("/api/psychologist/wallet/withdraw", async (c) => {
+  const profile = await resolvePsychologistProfile(c);
+  if (!profile) return c.json({ error: "Profil psikolog tidak ditemukan" }, 404);
+
+  if (!profile.bankName || !profile.bankAccountNumber || !profile.bankAccountHolder) {
+    return c.json({ error: "Lengkapi data rekening bank di profil sebelum mencairkan." }, 400);
+  }
+
+  const body = await readObjectBody(c);
+  const amount = typeof body.amount === "number" ? body.amount : Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return c.json({ error: "Nominal pencairan tidak valid." }, 400);
+  }
+
+  const adminFee = await RevenueService.getNumericSetting("withdrawal_admin_fee", 5000);
+  if (amount <= adminFee) {
+    return c.json({ error: `Nominal harus lebih besar dari biaya admin (Rp${adminFee}).` }, 400);
+  }
+
+  // Enforce the monthly withdrawal quota.
+  const usedThisMonth = await countWithdrawalsThisMonth(profile.id);
+  if (usedThisMonth >= MAX_WITHDRAWALS_PER_MONTH) {
+    return c.json({ error: `Pencairan hanya dapat dilakukan maksimal ${MAX_WITHDRAWALS_PER_MONTH}x dalam sebulan. Anda sudah mencapai batas untuk bulan ini.` }, 400);
+  }
+
+  // Validate balance and deduct atomically to prevent double-spend / negative balance.
+  let withdrawal;
+  try {
+    withdrawal = await prisma.$transaction(async (tx) => {
+      const agg = await tx.walletEntry.aggregate({
+        where: { psychologistId: profile.id },
+        _sum: { amount: true }
+      });
+      const balance = Number(agg._sum.amount ?? 0);
+      if (amount > balance) {
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+
+      const netAmount = amount - adminFee;
+      const created = await tx.withdrawal.create({
+        data: {
+          psychologistId: profile.id,
+          amount: new Prisma.Decimal(amount.toFixed(2)),
+          adminFee: new Prisma.Decimal(adminFee.toFixed(2)),
+          netAmount: new Prisma.Decimal(netAmount.toFixed(2)),
+          status: "PROCESSING",
+          bankName: profile.bankName!,
+          bankAccountNumber: profile.bankAccountNumber!,
+          bankAccountHolder: profile.bankAccountHolder!
+        }
+      });
+
+      // Debit the wallet (amount = transfer + admin fee), recorded as two entries.
+      await tx.walletEntry.createMany({
+        data: [
+          {
+            psychologistId: profile.id,
+            type: "WITHDRAWAL",
+            amount: new Prisma.Decimal((-netAmount).toFixed(2)),
+            withdrawalId: created.id,
+            description: "Pencairan saldo"
+          },
+          {
+            psychologistId: profile.id,
+            type: "WITHDRAWAL_FEE",
+            amount: new Prisma.Decimal((-adminFee).toFixed(2)),
+            withdrawalId: created.id,
+            description: "Biaya admin pencairan"
+          }
+        ]
+      });
+
+      return created;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
+      return c.json({ error: "Saldo tidak mencukupi." }, 400);
+    }
+    console.error("Withdrawal error:", err);
+    return c.json({ error: "Gagal memproses pencairan." }, 500);
+  }
+
+  // Send to disbursement gateway (dummy: auto-completes).
+  try {
+    const result = await createDisbursement({
+      withdrawalId: withdrawal.id,
+      amount: Number(withdrawal.netAmount),
+      bankName: withdrawal.bankName,
+      bankAccountNumber: withdrawal.bankAccountNumber,
+      bankAccountHolder: withdrawal.bankAccountHolder
+    });
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        gatewayReference: result.reference,
+        gatewayStatus: result.status,
+        status: result.status === "COMPLETED" ? "COMPLETED" : result.status === "FAILED" ? "FAILED" : "PROCESSING",
+        processedAt: result.status === "COMPLETED" ? new Date() : undefined,
+        failureReason: result.failureReason || null
+      }
+    });
+
+    // If the gateway rejected synchronously, reverse the wallet debit.
+    if (result.status === "FAILED") {
+      await reverseWithdrawal(withdrawal.id);
+    }
+  } catch (err) {
+    console.error("Disbursement error, reversing withdrawal:", err);
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { status: "FAILED", failureReason: "Gagal menghubungi gateway pencairan." }
+    });
+    await reverseWithdrawal(withdrawal.id);
+  }
+
+  await logAudit({
+    userId: profile.userId,
+    action: "WITHDRAWAL_REQUEST",
+    entityId: withdrawal.id,
+    metadata: { amount, adminFee }
+  }).catch((err) => console.error("Audit log error:", err));
+
+  const final = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+  return c.json({ data: { id: withdrawal.id, status: final?.status } }, 201);
+});
+
+/** Refunds a failed withdrawal back to the wallet (idempotent per withdrawal). */
+async function reverseWithdrawal(withdrawalId: string) {
+  const w = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!w) return;
+  const alreadyReversed = await prisma.walletEntry.findFirst({
+    where: { withdrawalId, type: "REVERSAL" }
+  });
+  if (alreadyReversed) return;
+
+  await prisma.walletEntry.create({
+    data: {
+      psychologistId: w.psychologistId,
+      type: "REVERSAL",
+      amount: new Prisma.Decimal(Number(w.amount).toFixed(2)),
+      withdrawalId: w.id,
+      description: "Pengembalian dana pencairan gagal"
+    }
+  });
+}
+
+// Disbursement gateway webhook (dummy). Real gateways call this asynchronously.
+app.post("/api/disbursements/webhook", async (c) => {
+  const payload = await c.req.json().catch(() => ({}));
+  const parsed = parseDisbursementWebhook(payload);
+
+  let withdrawal = null;
+  if (parsed.withdrawalId) {
+    withdrawal = await prisma.withdrawal.findUnique({ where: { id: parsed.withdrawalId } });
+  } else if (payload.reference) {
+    withdrawal = await prisma.withdrawal.findFirst({ where: { gatewayReference: String(payload.reference) } });
+  }
+  if (!withdrawal) return c.json({ error: "Withdrawal tidak ditemukan" }, 404);
+
+  if (parsed.status === "COMPLETED") {
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { status: "COMPLETED", gatewayStatus: "COMPLETED", processedAt: new Date() }
+    });
+  } else {
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { status: "FAILED", gatewayStatus: "FAILED", failureReason: parsed.failureReason || "Transfer gagal di gateway." }
+    });
+    await reverseWithdrawal(withdrawal.id);
+  }
+
+  return c.json({ data: { id: withdrawal.id, status: parsed.status } });
 });
 
 app.patch("/api/client/profile", async (c) => {
@@ -1124,7 +1432,8 @@ app.get("/api/psychologist/slots", async (c) => {
         id: s.id,
         dayOfWeek: s.dayOfWeek || 5,
         startTime: s.startTime,
-        endTime: s.endTime
+        endTime: s.endTime,
+        serviceMode: s.serviceMode
       }))
     });
   }
@@ -1139,12 +1448,15 @@ app.post("/api/psychologist/slots", async (c) => {
   const profile = userId ? await prisma.psychologistProfile.findFirst({ where: { userId } }) : await prisma.psychologistProfile.findFirst();
   console.log("[DEBUG POST SLOT] Profile found:", profile ? profile.id : "NULL");
   if (profile) {
+    const allowedModes = ["ONLINE", "OFFLINE", "BOTH"];
+    const serviceMode = allowedModes.includes(String(body.serviceMode)) ? (body.serviceMode as any) : "BOTH";
     const slot = await prisma.availabilitySlot.create({
       data: {
         psychologistId: profile.id,
         dayOfWeek: typeof body.dayOfWeek === "number" ? body.dayOfWeek : 5,
         startTime: String(body.startTime || "09:00"),
         endTime: String(body.endTime || "10:00"),
+        serviceMode,
         isRecurring: true
       }
     });
@@ -1156,11 +1468,13 @@ app.post("/api/psychologist/slots", async (c) => {
 app.patch("/api/psychologist/slots/:id", async (c) => {
   const id = c.req.param("id");
   const body = await readObjectBody(c);
+  const allowedModes = ["ONLINE", "OFFLINE", "BOTH"];
   const updated = await prisma.availabilitySlot.update({
     where: { id },
     data: {
       startTime: body.startTime ? String(body.startTime) : undefined,
-      endTime: body.endTime ? String(body.endTime) : undefined
+      endTime: body.endTime ? String(body.endTime) : undefined,
+      serviceMode: allowedModes.includes(String(body.serviceMode)) ? (body.serviceMode as any) : undefined
     }
   });
   return c.json({ data: updated });
@@ -1585,6 +1899,123 @@ app.get("/api/admin/stats", async (c) => {
       pendingVerification: pendingVerif,
       monthlyStats
     }
+  });
+});
+
+// ─── ADMIN: COMMISSION SETTINGS & PAYOUTS ───────────────────────────────────
+
+app.get("/api/admin/settings", async (c) => {
+  const commissionRate = await RevenueService.getNumericSetting("commission_rate", 0.20);
+  const withdrawalAdminFee = await RevenueService.getNumericSetting("withdrawal_admin_fee", 5000);
+  return c.json({
+    data: {
+      commissionRate, // fraction, e.g. 0.20
+      commissionPercent: Math.round(commissionRate * 100),
+      withdrawalAdminFee
+    }
+  });
+});
+
+app.patch("/api/admin/settings", async (c) => {
+  const userId = c.req.header("x-user-id");
+  const body = await readObjectBody(c);
+
+  const updates: { key: string; value: string }[] = [];
+
+  if (body.commissionPercent !== undefined || body.commissionRate !== undefined) {
+    let rate: number;
+    if (body.commissionRate !== undefined) {
+      rate = Number(body.commissionRate);
+    } else {
+      rate = Number(body.commissionPercent) / 100;
+    }
+    if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+      return c.json({ error: "Persentase komisi harus antara 0 dan 100." }, 400);
+    }
+    updates.push({ key: "commission_rate", value: String(rate) });
+  }
+
+  if (body.withdrawalAdminFee !== undefined) {
+    const fee = Number(body.withdrawalAdminFee);
+    if (!Number.isFinite(fee) || fee < 0) {
+      return c.json({ error: "Biaya admin pencairan tidak valid." }, 400);
+    }
+    updates.push({ key: "withdrawal_admin_fee", value: String(Math.round(fee)) });
+  }
+
+  await Promise.all(
+    updates.map((u) =>
+      prisma.platformSetting.upsert({
+        where: { key: u.key },
+        update: { value: u.value },
+        create: { key: u.key, value: u.value }
+      })
+    )
+  );
+
+  await logAudit({
+    userId,
+    action: "UPDATE_PLATFORM_SETTINGS",
+    metadata: body
+  }).catch((err) => console.error("Audit log error:", err));
+
+  const commissionRate = await RevenueService.getNumericSetting("commission_rate", 0.20);
+  const withdrawalAdminFee = await RevenueService.getNumericSetting("withdrawal_admin_fee", 5000);
+  return c.json({ data: { commissionRate, commissionPercent: Math.round(commissionRate * 100), withdrawalAdminFee } });
+});
+
+app.get("/api/admin/wallets", async (c) => {
+  const profiles = await prisma.psychologistProfile.findMany({
+    include: { user: true }
+  });
+
+  const wallets = await Promise.all(
+    profiles.map(async (p) => {
+      const [balanceAgg, earnedAgg, withdrawnAgg] = await Promise.all([
+        prisma.walletEntry.aggregate({ where: { psychologistId: p.id }, _sum: { amount: true } }),
+        prisma.walletEntry.aggregate({ where: { psychologistId: p.id, type: "EARNING" }, _sum: { amount: true } }),
+        prisma.withdrawal.aggregate({ where: { psychologistId: p.id, status: "COMPLETED" }, _sum: { netAmount: true } })
+      ]);
+      return {
+        psychologistId: p.id,
+        name: p.user.fullName,
+        email: p.user.email,
+        balance: Number(balanceAgg._sum.amount ?? 0),
+        totalEarned: Number(earnedAgg._sum.amount ?? 0),
+        totalWithdrawn: Number(withdrawnAgg._sum.netAmount ?? 0),
+        hasBankAccount: Boolean(p.bankName && p.bankAccountNumber && p.bankAccountHolder)
+      };
+    })
+  );
+
+  return c.json({ data: wallets.sort((a, b) => b.balance - a.balance) });
+});
+
+app.get("/api/admin/withdrawals", async (c) => {
+  const status = c.req.query("status");
+  const withdrawals = await prisma.withdrawal.findMany({
+    where: status ? { status: status as any } : undefined,
+    orderBy: { createdAt: "desc" },
+    include: { psychologist: { include: { user: true } } }
+  });
+
+  return c.json({
+    data: withdrawals.map((w) => ({
+      id: w.id,
+      psychologistId: w.psychologistId,
+      psychologistName: w.psychologist.user.fullName,
+      amount: Number(w.amount),
+      adminFee: Number(w.adminFee),
+      netAmount: Number(w.netAmount),
+      status: w.status,
+      bankName: w.bankName,
+      bankAccountNumber: w.bankAccountNumber,
+      bankAccountHolder: w.bankAccountHolder,
+      gatewayReference: w.gatewayReference || "",
+      failureReason: w.failureReason || "",
+      createdAt: w.createdAt.toISOString(),
+      processedAt: w.processedAt ? w.processedAt.toISOString() : ""
+    }))
   });
 });
 

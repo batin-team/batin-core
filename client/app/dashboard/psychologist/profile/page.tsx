@@ -16,6 +16,9 @@ export default function PsychologistProfileSettingsPage() {
   const [experienceYears, setExperienceYears] = useState(0);
   const [bio, setBio] = useState("");
   const [price, setPrice] = useState(350000);
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankAccountHolder, setBankAccountHolder] = useState("");
   const [selectedSpecs, setSelectedSpecs] = useState<string[]>([]);
   const [allSpecializations, setAllSpecializations] = useState<string[]>([]);
 
@@ -43,6 +46,9 @@ export default function PsychologistProfileSettingsPage() {
           setExperienceYears(d.experienceYears || 0);
           setBio(d.bio || "");
           setPrice(d.pricePerSession || 350000);
+          setBankName(d.bankName || "");
+          setBankAccountNumber(d.bankAccountNumber || "");
+          setBankAccountHolder(d.bankAccountHolder || "");
           setSelectedSpecs(d.specializations || []);
         }
         if (specRes && specRes.data) {
@@ -75,6 +81,9 @@ export default function PsychologistProfileSettingsPage() {
           experienceYears: Number(experienceYears),
           bio,
           pricePerSession: Number(price),
+          bankName,
+          bankAccountNumber,
+          bankAccountHolder,
           specializations: selectedSpecs
         })
       });
@@ -92,6 +101,9 @@ export default function PsychologistProfileSettingsPage() {
         experienceYears,
         bio,
         pricePerSession: price,
+        bankName,
+        bankAccountNumber,
+        bankAccountHolder,
         specializations: selectedSpecs
       }));
     } catch (err: any) {
@@ -305,6 +317,45 @@ export default function PsychologistProfileSettingsPage() {
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Bank Account Section (for withdrawals) */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, gridColumn: "1 / -1", borderTop: "1px solid #E2E8F0", paddingTop: 24 }}>
+                  <label style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>Rekening Bank untuk Pencairan</label>
+                  <span style={{ fontSize: 12, color: "#94A3B8", marginTop: -4 }}>Data ini wajib diisi sebelum Anda dapat mencairkan saldo komisi.</span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>Nama Bank</label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="Contoh: BCA, Mandiri, BNI"
+                    style={{ borderRadius: 8, height: 42, padding: "0 12px", border: "1px solid #E2E8F0", fontSize: 14, color: "#0F172A", fontWeight: 500 }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>Nomor Rekening</label>
+                  <input
+                    type="text"
+                    value={bankAccountNumber}
+                    onChange={(e) => setBankAccountNumber(e.target.value)}
+                    placeholder="Contoh: 1234567890"
+                    style={{ borderRadius: 8, height: 42, padding: "0 12px", border: "1px solid #E2E8F0", fontSize: 14, color: "#0F172A", fontWeight: 500 }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>Nama Pemilik Rekening</label>
+                  <input
+                    type="text"
+                    value={bankAccountHolder}
+                    onChange={(e) => setBankAccountHolder(e.target.value)}
+                    placeholder="Sesuai buku tabungan"
+                    style={{ borderRadius: 8, height: 42, padding: "0 12px", border: "1px solid #E2E8F0", fontSize: 14, color: "#0F172A", fontWeight: 500 }}
+                  />
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, gridColumn: "1 / -1" }}>

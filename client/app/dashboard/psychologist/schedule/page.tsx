@@ -24,11 +24,26 @@ const DAYS = [
   { value: 7, label: "Minggu" }
 ];
 
+type ServiceMode = "ONLINE" | "OFFLINE" | "BOTH";
+
+const MODES: { value: ServiceMode; label: string }[] = [
+  { value: "BOTH", label: "Online & Offline" },
+  { value: "ONLINE", label: "Online" },
+  { value: "OFFLINE", label: "Offline" }
+];
+
+const MODE_BADGE: Record<ServiceMode, { label: string; bg: string; color: string }> = {
+  ONLINE: { label: "Online", bg: "#DBEAFE", color: "#1D4ED8" },
+  OFFLINE: { label: "Offline", bg: "#FEF3C7", color: "#92400E" },
+  BOTH: { label: "Online & Offline", bg: "#D1FAE5", color: "#065F46" }
+};
+
 type Slot = {
   id: string;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
+  serviceMode: ServiceMode;
 };
 
 type ActiveTab = "weekly" | "override" | "preview";
@@ -42,6 +57,7 @@ export default function SchedulePage() {
   const [selectedDay, setSelectedDay] = useState(1);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("12:00");
+  const [selectedMode, setSelectedMode] = useState<ServiceMode>("BOTH");
   const [showAddForm, setShowAddForm] = useState(false);
 
   // Override Form State
@@ -113,7 +129,8 @@ export default function SchedulePage() {
         body: JSON.stringify({
           dayOfWeek: Number(selectedDay),
           startTime,
-          endTime
+          endTime,
+          serviceMode: selectedMode
         })
       });
       setMessage("Slot mingguan baru berhasil disimpan!");
@@ -289,6 +306,12 @@ export default function SchedulePage() {
                   <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>Selesai</label>
                   <input className="input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={{ borderRadius: 8 }} />
                 </div>
+                <div className="field">
+                  <label style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>Mode Konseling</label>
+                  <select className="select" value={selectedMode} onChange={(e) => setSelectedMode(e.target.value as ServiceMode)} style={{ borderRadius: 8 }}>
+                    {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => setShowAddForm(false)} className="button button-secondary" style={{ borderRadius: 8, minHeight: 38, fontSize: 13 }}>Batal</button>
@@ -322,6 +345,14 @@ export default function SchedulePage() {
                               <span style={{ color: "#94A3B8" }}>-</span>
                               <span style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{slot.endTime}</span>
                             </div>
+                            {(() => {
+                              const badge = MODE_BADGE[slot.serviceMode] || MODE_BADGE.BOTH;
+                              return (
+                                <span style={{ fontSize: 11, fontWeight: 800, backgroundColor: badge.bg, color: badge.color, padding: "4px 10px", borderRadius: 6, whiteSpace: "nowrap" }}>
+                                  {badge.label}
+                                </span>
+                              );
+                            })()}
                             <button
                               type="button"
                               onClick={() => handleDeleteSlot(slot.id)}

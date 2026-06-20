@@ -1,19 +1,37 @@
 import { prisma } from "../db";
 import { Prisma } from "@prisma/client";
 
+// Default global commission rate (platform's cut) if the setting is missing.
+const DEFAULT_COMMISSION_RATE = 0.20;
+
 export class RevenueService {
+  /** Reads a numeric platform setting, falling back to `fallback` when absent/invalid. */
+  static async getNumericSetting(key: string, fallback: number): Promise<number> {
+    const setting = await prisma.platformSetting.findUnique({ where: { key } });
+    if (!setting) return fallback;
+    const parsed = parseFloat(setting.value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
   /**
-   * Calculates the split based on membership type and settings,
-   * then creates Transaction and LedgerEntry records atomically.
+   * Records commission + provider earning when a session is COMPLETED.
+   *
+   * The platform keeps a single global commission rate (configurable in admin)
+   * of the base price; the remainder is credited to the psychologist's wallet.
+   * The platform also keeps the fixed platform fee in full.
+   *
+   * Idempotent: if a Transaction already exists for this session, it does nothing,
+   * so it is safe to call from every completion check.
    */
-  static async recordTransactionAndSplits(sessionId: string) {
+  static async recordEarningOnCompletion(sessionId: string) {
+    const existing = await prisma.transaction.findFirst({ where: { sessionId } });
+    if (existing) return existing; // already recorded — avoid double crediting
+
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
       include: {
         payment: true,
-        psychologist: {
-          include: { user: true }
-        }
+        psychologist: { include: { user: true } }
       }
     });
 
@@ -26,32 +44,13 @@ export class RevenueService {
     const platformFee = payment.platformFee;
     const basePrice = totalAmount - platformFee;
 
-    // Fetch settings from database or use defaults
-    const memberSplitSetting = await prisma.platformSetting.findUnique({
-      where: { key: "member_split" }
-    });
-    const partnerCommissionSetting = await prisma.platformSetting.findUnique({
-      where: { key: "partner_commission" }
-    });
+    const commissionRate = await RevenueService.getNumericSetting("commission_rate", DEFAULT_COMMISSION_RATE);
 
-    const memberSplit = memberSplitSetting ? parseFloat(memberSplitSetting.value) : 0.70;
-    const partnerCommission = partnerCommissionSetting ? parseFloat(partnerCommissionSetting.value) : 0.15;
+    const commission = basePrice * commissionRate;
+    const providerShare = basePrice - commission;
+    const platformShare = commission + platformFee;
 
-    const membershipType = session.psychologist.membershipType || "MEMBER";
-
-    let providerShare = 0;
-    let platformShare = 0;
-
-    if (membershipType === "PARTNER") {
-      platformShare = basePrice * partnerCommission + platformFee;
-      providerShare = basePrice * (1 - partnerCommission);
-    } else {
-      // MEMBER
-      providerShare = basePrice * memberSplit;
-      platformShare = basePrice * (1 - memberSplit) + platformFee;
-    }
-
-    // Atomically create Transaction and LedgerEntries
+    // Atomically: ledger record (reporting) + wallet credit (psychologist balance)
     return prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.create({
         data: {
@@ -77,8 +76,27 @@ export class RevenueService {
         ]
       });
 
+      await tx.walletEntry.create({
+        data: {
+          psychologistId: session.psychologistId,
+          type: "EARNING",
+          amount: new Prisma.Decimal(providerShare.toFixed(2)),
+          sessionId: session.id,
+          description: `Komisi sesi selesai (${(commissionRate * 100).toFixed(0)}% komisi platform)`
+        }
+      });
+
       return transaction;
     });
+  }
+
+  /** Current wallet balance for a psychologist = sum of all wallet entry amounts. */
+  static async getWalletBalance(psychologistId: string): Promise<number> {
+    const agg = await prisma.walletEntry.aggregate({
+      where: { psychologistId },
+      _sum: { amount: true }
+    });
+    return Number(agg._sum.amount ?? 0);
   }
 
   /**

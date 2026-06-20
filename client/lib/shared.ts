@@ -195,6 +195,53 @@ export function toSlotKey(date: string, time: string) {
   return `${date}T${time}`;
 }
 
+function getJakartaDateTimeParts(value: Date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  const parts = formatter.formatToParts(value);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+
+  return {
+    year: read("year"),
+    month: read("month"),
+    day: read("day"),
+    hour: read("hour"),
+    minute: read("minute"),
+    second: read("second")
+  };
+}
+
+export function getTodayBookingDateStr(now = new Date()) {
+  const { year, month, day } = getJakartaDateTimeParts(now);
+  return `${year}-${month}-${day}`;
+}
+
+export function getSlotStartTime(time: string) {
+  return time.split(" - ")[0]?.trim() || time.trim();
+}
+
+export function isPastBookingSlot(date: string, time: string, now = new Date()) {
+  if (!date || !time) return false;
+
+  const slotStartTime = getSlotStartTime(time);
+  if (!/^\d{2}:\d{2}$/.test(slotStartTime)) return false;
+
+  const slotStart = new Date(`${date}T${slotStartTime}:00+07:00`);
+  const { year, month, day, hour, minute, second } = getJakartaDateTimeParts(now);
+  const bookingNow = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+07:00`);
+
+  return slotStart.getTime() <= bookingNow.getTime();
+}
+
 export function formatSlot(slotKey: string) {
   const [date, time] = slotKey.split("T");
   return `${new Date(`${date}T00:00:00+07:00`).toLocaleDateString("id-ID", {

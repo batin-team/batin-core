@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { Star, GraduationCap, FileBadge, Phone, Video } from "lucide-react";
-import { type Psychologist } from "@mindbridge/shared";
+import { getTodayBookingDateStr, isPastBookingSlot, type Psychologist } from "@mindbridge/shared";
 import { Footer } from "../../../components/Footer";
 import { NavBar } from "../../../components/NavBar";
 import { apiFetch } from "../../../lib/api";
@@ -17,6 +17,7 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
 
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedTime, setSelectedTime] = useState<string>("");
+  const [currentTime, setCurrentTime] = useState(() => new Date());
 
   useEffect(() => {
     async function load() {
@@ -37,6 +38,14 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
     load();
   }, [id]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const groupedSlots = useMemo(() => {
     if (!psychologist) return {};
     return psychologist.availableSlots.reduce((acc, slot) => {
@@ -48,12 +57,23 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
   }, [psychologist]);
 
   const availableDates = useMemo(() => Object.keys(groupedSlots).sort(), [groupedSlots]);
+  const firstSelectableDate = useMemo(() => {
+    return availableDates.find((date) => groupedSlots[date]?.some((slot) => !isPastBookingSlot(date, slot, currentTime))) || availableDates[0] || "";
+  }, [availableDates, currentTime, groupedSlots]);
+  const isSelectedTimePast = useMemo(() => Boolean(selectedDate && selectedTime && isPastBookingSlot(selectedDate, selectedTime, currentTime)), [currentTime, selectedDate, selectedTime]);
+  const canBookSelectedSlot = Boolean(selectedDate && selectedTime && !isSelectedTimePast);
 
   useEffect(() => {
-    if (availableDates.length > 0 && !selectedDate) {
-      setSelectedDate(availableDates[0]);
+    if (firstSelectableDate && !selectedDate) {
+      setSelectedDate(firstSelectableDate);
     }
-  }, [availableDates, selectedDate]);
+  }, [firstSelectableDate, selectedDate]);
+
+  useEffect(() => {
+    if (isSelectedTimePast) {
+      setSelectedTime("");
+    }
+  }, [isSelectedTimePast]);
 
   if (isLoading) {
     return (
@@ -152,8 +172,8 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
   const firstName = psychologist.name.replace("Dr. ", "").split(",")[0].split(" ")[0];
 
   function handleBooking() {
-    if (!selectedDate || !selectedTime) {
-      alert("Silakan pilih tanggal dan jam terlebih dahulu");
+    if (!canBookSelectedSlot) {
+      alert("Silakan pilih tanggal dan jam yang masih tersedia terlebih dahulu");
       return;
     }
     // Set query params in the URL so BookingFlow can automatically pick up this slot if needed
@@ -292,7 +312,7 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
                           backgroundColor: "#FFF", color: isSelected ? "#2563EB" : "#64748B", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer"
                         }}
                       >
-                        <span style={{ fontSize: 13, fontWeight: isSelected ? 600 : 400 }}>{idx === 0 ? "Hari ini" : dayName}</span>
+                        <span style={{ fontSize: 13, fontWeight: isSelected ? 600 : 400 }}>{dateStr === getTodayBookingDateStr(currentTime) ? "Hari ini" : dayName}</span>
                         <span style={{ fontSize: 12 }}>{dayMonth}</span>
                       </button>
                     );
@@ -303,15 +323,17 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
                   <div>
                     <p style={{ fontSize: 14, fontWeight: 600, color: "#0F172A", marginBottom: 12 }}>Siang-Sore</p>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
-                      {groupedSlots[selectedDate].map((time) => {
+                      {groupedSlots[selectedDate]?.map((time) => {
                         const isSelected = selectedTime === time;
+                        const isPast = isPastBookingSlot(selectedDate, time, currentTime);
                         return (
                           <button
                             key={time}
+                            disabled={isPast}
                             onClick={() => setSelectedTime(time)}
                             style={{
                               padding: "8px 16px", borderRadius: 8, border: `1px solid ${isSelected ? "#2563EB" : "#E2E8F0"}`,
-                              backgroundColor: "#FFF", color: isSelected ? "#2563EB" : "#475569", fontSize: 14, fontWeight: isSelected ? 600 : 500, cursor: "pointer"
+                              backgroundColor: isPast ? "#F8FAFC" : "#FFF", color: isSelected ? "#2563EB" : (isPast ? "#94A3B8" : "#475569"), fontSize: 14, fontWeight: isSelected ? 600 : 500, cursor: isPast ? "not-allowed" : "pointer", opacity: isPast ? 0.7 : 1
                             }}
                           >
                             {time} WIB
@@ -329,8 +351,8 @@ export default function PsychologistDetailClient({ id }: { id: string }) {
             <button
               onClick={handleBooking}
               style={{
-                width: "100%", padding: "14px 0", backgroundColor: (selectedDate && selectedTime) ? "#2563EB" : "#94A3B8",
-                color: "#FFF", borderRadius: 8, fontSize: 15, fontWeight: 600, border: "none", cursor: (selectedDate && selectedTime) ? "pointer" : "not-allowed"
+                width: "100%", padding: "14px 0", backgroundColor: canBookSelectedSlot ? "#2563EB" : "#94A3B8",
+                color: "#FFF", borderRadius: 8, fontSize: 15, fontWeight: 600, border: "none", cursor: canBookSelectedSlot ? "pointer" : "not-allowed"
               }}
             >
               Pilih Jadwal

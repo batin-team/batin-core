@@ -32,12 +32,19 @@ describe("Batin High-Fidelity Backend Services", () => {
     });
   });
 
-  describe("WU-002: Financial Ledgering & Split Calculations", () => {
+  describe("WU-002: Commission, Wallet Crediting & Ledgering (on completion)", () => {
     let mockClient: any;
     let mockMemberProfile: any;
     let mockPartnerProfile: any;
 
     beforeAll(async () => {
+      // Single global commission rate of 20% drives all earnings now.
+      await prisma.platformSetting.upsert({
+        where: { key: "commission_rate" },
+        update: { value: "0.20" },
+        create: { key: "commission_rate", value: "0.20" }
+      });
+
       // Create users & profiles for testing split
       const memberUser = await prisma.user.create({
         data: {
@@ -95,6 +102,8 @@ describe("Batin High-Fidelity Backend Services", () => {
 
     afterAll(async () => {
       // Cleanup
+      await prisma.walletEntry.deleteMany();
+      await prisma.withdrawal.deleteMany();
       await prisma.ledgerEntry.deleteMany();
       await prisma.transaction.deleteMany();
       await prisma.payment.deleteMany();
@@ -107,7 +116,7 @@ describe("Batin High-Fidelity Backend Services", () => {
       });
     });
 
-    it("should calculate 70/30 split correctly for MEMBER psychologist", async () => {
+    it("applies the global commission, credits the wallet, and records the ledger on completion", async () => {
       const session = await prisma.session.create({
         data: {
           clientId: mockClient.id,
@@ -120,38 +129,34 @@ describe("Batin High-Fidelity Backend Services", () => {
               amount: 335000, // 300000 + 35000 platform fee
               platformFee: 35000,
               totalAmount: 335000,
-              status: "PENDING"
+              status: "SUCCESS"
             }
           }
         },
         include: { payment: true }
       });
 
-      // Mark payment SUCCESS
-      await prisma.payment.update({
-        where: { id: session.payment!.id },
-        data: { status: "SUCCESS" }
-      });
-
-      const tx = await RevenueService.recordTransactionAndSplits(session.id);
+      const tx = await RevenueService.recordEarningOnCompletion(session.id);
       expect(tx.status).toBe("SUCCESS");
 
       const ledgerEntries = await prisma.ledgerEntry.findMany({
         where: { transactionId: tx.id }
       });
-
       expect(ledgerEntries.length).toBe(2);
 
       const providerEntry = ledgerEntries.find(e => e.type === "PROVIDER_SPLIT");
       const platformEntry = ledgerEntries.find(e => e.type === "PLATFORM_SPLIT");
 
-      // MEMBER: 70% of 300k = 210k provider
-      // Platform: 30% of 300k (90k) + 35k platform fee = 125k platform
-      expect(Number(providerEntry?.amount)).toBe(210000);
-      expect(Number(platformEntry?.amount)).toBe(125000);
+      // base 300k, 20% commission: provider 240k, platform 60k + 35k fee = 95k
+      expect(Number(providerEntry?.amount)).toBe(240000);
+      expect(Number(platformEntry?.amount)).toBe(95000);
+
+      // Wallet credited with the provider share
+      const balance = await RevenueService.getWalletBalance(mockMemberProfile.id);
+      expect(balance).toBe(240000);
     });
 
-    it("should calculate 85/15 split correctly for PARTNER psychologist", async () => {
+    it("is idempotent — calling completion twice does not double-credit", async () => {
       const session = await prisma.session.create({
         data: {
           clientId: mockClient.id,
@@ -164,35 +169,22 @@ describe("Batin High-Fidelity Backend Services", () => {
               amount: 435000, // 400000 + 35000 platform fee
               platformFee: 35000,
               totalAmount: 435000,
-              status: "PENDING"
+              status: "SUCCESS"
             }
           }
         },
         include: { payment: true }
       });
 
-      // Mark payment SUCCESS
-      await prisma.payment.update({
-        where: { id: session.payment!.id },
-        data: { status: "SUCCESS" }
-      });
+      await RevenueService.recordEarningOnCompletion(session.id);
+      await RevenueService.recordEarningOnCompletion(session.id); // second call must be a no-op
 
-      const tx = await RevenueService.recordTransactionAndSplits(session.id);
-      expect(tx.status).toBe("SUCCESS");
+      const transactions = await prisma.transaction.findMany({ where: { sessionId: session.id } });
+      expect(transactions.length).toBe(1);
 
-      const ledgerEntries = await prisma.ledgerEntry.findMany({
-        where: { transactionId: tx.id }
-      });
-
-      expect(ledgerEntries.length).toBe(2);
-
-      const providerEntry = ledgerEntries.find(e => e.type === "PROVIDER_SPLIT");
-      const platformEntry = ledgerEntries.find(e => e.type === "PLATFORM_SPLIT");
-
-      // PARTNER: 85% of 400k = 340k provider
-      // Platform: 15% of 400k (60k) + 35k platform fee = 95k platform
-      expect(Number(providerEntry?.amount)).toBe(340000);
-      expect(Number(platformEntry?.amount)).toBe(95000);
+      // base 400k, 20% commission -> provider 320k credited exactly once
+      const balance = await RevenueService.getWalletBalance(mockPartnerProfile.id);
+      expect(balance).toBe(320000);
     });
   });
 

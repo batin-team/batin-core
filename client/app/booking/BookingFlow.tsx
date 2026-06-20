@@ -7,6 +7,8 @@ import {
   calculateDistanceKm,
   formatCurrency,
   formatSlot,
+  getTodayBookingDateStr,
+  isPastBookingSlot,
   toSlotKey,
   type Psychologist
 } from "@mindbridge/shared";
@@ -29,14 +31,6 @@ const defaultMeetingLocation = {
   lng: 106.7816
 };
 
-const getTodayLocalDateStr = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 export function BookingFlow() {
   const router = useRouter();
   const params = useSearchParams();
@@ -46,12 +40,13 @@ export function BookingFlow() {
   const [showAssessment, setShowAssessment] = useState(false);
   const [gender, setGender] = useState<GenderPreference>("ANY");
   const [selectedSpecializations, setSelectedSpecializations] = useState<string[]>(["Kecemasan"]);
-  const [date, setDate] = useState(params.get("date") ?? getTodayLocalDateStr());
+  const [date, setDate] = useState(params.get("date") ?? getTodayBookingDateStr());
   const [time, setTime] = useState(params.get("time") ?? "");
   const [meetingAddress, setMeetingAddress] = useState(defaultMeetingLocation.label);
   const [meetingLat, setMeetingLat] = useState(defaultMeetingLocation.lat);
   const [meetingLng, setMeetingLng] = useState(defaultMeetingLocation.lng);
   const [notes, setNotes] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const urlPsychologistId = params.get("psychologist") ?? params.get("psychologistId") ?? "";
   const [selectedPsychologistId, setSelectedPsychologistId] = useState(urlPsychologistId);
   const [manualMode, setManualMode] = useState(false);
@@ -62,6 +57,14 @@ export function BookingFlow() {
 
   const isPreselected = Boolean(urlPsychologistId);
   const isLocked = isPreselected && !manualMode;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const user = localStorage.getItem("mindbridge_user");
@@ -117,7 +120,14 @@ export function BookingFlow() {
     router.push("/");
   }
 
-  const slotKey = time ? toSlotKey(date, time) : "";
+  const isSelectedTimePast = useMemo(() => Boolean(time && isPastBookingSlot(date, time, currentTime)), [currentTime, date, time]);
+  const slotKey = time && !isSelectedTimePast ? toSlotKey(date, time) : "";
+
+  useEffect(() => {
+    if (isSelectedTimePast) {
+      setTime("");
+    }
+  }, [isSelectedTimePast]);
 
   const matches = useMemo(() => {
     if (!slotKey || dbPsychologists.length === 0) return [];
@@ -272,7 +282,7 @@ export function BookingFlow() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <label htmlFor="date" style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>Tanggal sesi</label>
-              <input id="date" type="date" min={getTodayLocalDateStr()} value={date} onChange={(event) => setDate(event.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid #CBD5E1", backgroundColor: "#F8FAFC", fontSize: 14, color: "#0F172A", outline: "none", cursor: "pointer" }} />
+              <input id="date" type="date" min={getTodayBookingDateStr(currentTime)} value={date} onChange={(event) => setDate(event.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid #CBD5E1", backgroundColor: "#F8FAFC", fontSize: 14, color: "#0F172A", outline: "none", cursor: "pointer" }} />
             </div>
           </div>
 
@@ -299,7 +309,8 @@ export function BookingFlow() {
             <label style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>Jam tersedia</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 10 }}>
               {times.map((item) => {
-                const available = dbPsychologists.some((psychologist) => isCandidate(psychologist, mode, gender, toSlotKey(date, item), selectedSpecializations));
+                const isPast = isPastBookingSlot(date, item, currentTime);
+                const available = !isPast && dbPsychologists.some((psychologist) => isCandidate(psychologist, mode, gender, toSlotKey(date, item), selectedSpecializations));
                 const isSelected = time === item;
                 return (
                   <button
@@ -475,7 +486,7 @@ export function BookingFlow() {
                     >
                       <div>
                         <strong style={{ display: "block", fontSize: 15, color: "#0F172A", marginBottom: 4 }}>{match.psychologist.name}</strong>
-                        <p style={{ fontSize: 12, color: "#64748B" }}>{match.reasons.join(" • ")}</p>
+                        <p style={{ fontSize: 12, color: "#64748B" }}>{match.reasons.join(" â€¢ ")}</p>
                       </div>
                       <span style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{formatCurrency(match.psychologist.pricePerSession)}</span>
                     </button>
@@ -530,7 +541,7 @@ function PsychologistMatchCard({ match, mode, slotKey }: { match: MatchResult; m
         ))}
       </div>
       <div style={{ padding: 20, backgroundColor: "#F8FAFC" }}>
-        <p style={{ fontSize: 13, color: "#64748B", marginBottom: 8 }}>{match.reasons.join(" • ")}</p>
+        <p style={{ fontSize: 13, color: "#64748B", marginBottom: 8 }}>{match.reasons.join(" â€¢ ")}</p>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 14, color: "#475569", fontWeight: 600 }}>Total Pembayaran</span>
           <h3 style={{ fontSize: 20, color: "#0F172A", fontWeight: 800 }}>{formatCurrency(match.psychologist.pricePerSession + 35000)}</h3>

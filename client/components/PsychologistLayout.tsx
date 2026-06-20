@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, CalendarDays, LogOut, Bell, HeartHandshake, User, Menu } from "lucide-react";
+import { LayoutDashboard, CalendarDays, LogOut, Bell, HeartHandshake, User, Menu, Wallet } from "lucide-react";
 
 type PsychologistLayoutProps = {
   children: React.ReactNode;
-  activeTab: "dashboard" | "schedule" | "attendance" | "notes" | "profile";
+  activeTab: "dashboard" | "schedule" | "attendance" | "notes" | "profile" | "wallet";
 };
 
 type UserData = {
@@ -112,6 +112,27 @@ export function PsychologistLayout({ children, activeTab }: PsychologistLayoutPr
           >
             <CalendarDays size={18} />
             Jadwal & Ketersediaan
+          </Link>
+
+          <Link
+            href="/dashboard/psychologist/wallet"
+            onClick={() => setMenuOpen(false)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "12px 16px",
+              borderRadius: 12,
+              fontSize: 14,
+              fontWeight: 600,
+              textDecoration: "none",
+              color: activeTab === "wallet" ? "#FFFFFF" : "#64748B",
+              backgroundColor: activeTab === "wallet" ? "#2563EB" : "transparent",
+              transition: "all 0.2s"
+            }}
+          >
+            <Wallet size={18} />
+            Wallet & Komisi
           </Link>
 
           <Link

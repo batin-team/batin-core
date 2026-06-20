@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Users, UserCog, LogOut, Bell, HeartHandshake, ShieldCheck, Calendar, Menu, Ticket } from "lucide-react";
+import { LayoutDashboard, Users, UserCog, LogOut, Bell, HeartHandshake, ShieldCheck, Calendar, Menu, Ticket, Wallet, Settings } from "lucide-react";
 
 type AdminLayoutProps = {
   children: React.ReactNode;
-  activeTab: "dashboard" | "psychologists" | "clients" | "leaves" | "vouchers";
+  activeTab: "dashboard" | "psychologists" | "clients" | "leaves" | "vouchers" | "withdrawals" | "settings";
 };
 
 type UserData = {
@@ -23,6 +23,8 @@ const NAV_ITEMS = [
   { tab: "clients" as const, label: "Kelola Pasien", icon: Users, href: "/dashboard/admin/clients" },
   { tab: "leaves" as const, label: "Persetujuan Cuti", icon: Calendar, href: "/dashboard/admin/leaves" },
   { tab: "vouchers" as const, label: "Kelola Voucher", icon: Ticket, href: "/dashboard/admin/vouchers" },
+  { tab: "withdrawals" as const, label: "Pencairan Komisi", icon: Wallet, href: "/dashboard/admin/withdrawals" },
+  { tab: "settings" as const, label: "Pengaturan Komisi", icon: Settings, href: "/dashboard/admin/settings" },
 ];
 
 export function AdminLayout({ children, activeTab }: AdminLayoutProps) {
