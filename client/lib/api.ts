@@ -38,3 +38,20 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
 
   return response.json() as Promise<T>;
 }
+
+/** Fetches a binary response (e.g. a PDF) as a Blob, with auth headers attached. */
+export async function apiDownload(path: string, options: RequestInit = {}): Promise<Blob> {
+  const headers = {
+    ...getUserIdHeader(),
+    ...(options.headers || {})
+  };
+
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `HTTP error! status: ${response.status}`);
+  }
+
+  return response.blob();
+}

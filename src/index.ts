@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Context, Hono } from "hono";
 import { cors } from "hono/cors";
@@ -6,13 +7,15 @@ import { prisma } from "./db";
 import { createMeetLink } from "./services/google-meet.service";
 import { matchPsychologist } from "./services/matching.service";
 import { createSnapToken, verifyMidtransWebhook } from "./services/midtrans.service";
-import { generateCounselingNotesPdf, generateReceiptPdf } from "./services/pdf.service";
+import { generateCounselingNotesPdf, generateReceiptPdf, buildCounselingNotesPdf } from "./services/pdf.service";
 import { sendBookingConfirmation } from "./services/notification.service";
 import { logAudit } from "./middleware/audit";
 import { RevenueService } from "./services/revenue.service";
 import { AssessmentService } from "./services/assessment.service";
 import { createDisbursement, parseDisbursementWebhook } from "./services/disbursement.service";
+import { createAndSendOtp, verifyOtp } from "./services/otp.service";
 import { Prisma } from "@prisma/client";
+import { createHash } from "crypto";
 
 export const app = new Hono();
 export default app;
@@ -180,13 +183,13 @@ async function getDbPsychologists(): Promise<Psychologist[]> {
 
 app.get("/health", (c) => c.json({ status: "ok", service: "mindbridge-api-postgres" }));
 
-app.post("/api/auth/register", async (c) => {
+// Step 1 of registration: validate input and email OTP to the user. The account
+// is NOT created yet — only after the OTP is verified in /register/verify.
+app.post("/api/auth/register/request-otp", async (c) => {
   const body = await readObjectBody(c);
-  const email = String(body.email || "");
+  const email = String(body.email || "").trim().toLowerCase();
   const fullName = String(body.fullName || "");
-  const phone = String(body.phone || "");
   const password = String(body.password || "");
-  const role = body.role === "PSYCHOLOGIST" ? "PSYCHOLOGIST" : "CLIENT";
 
   if (!email || !fullName || !password) {
     return c.json({ error: "Email, nama lengkap, dan password wajib diisi" }, 400);
@@ -197,14 +200,44 @@ app.post("/api/auth/register", async (c) => {
     return c.json({ error: "Email sudah terdaftar" }, 400);
   }
 
-  const user = await prisma.user.create({
-    data: {
-      email,
-      fullName,
-      phone,
-      role,
-      passwordHash: password
+  try {
+    const result = await createAndSendOtp(email, "REGISTRATION");
+    return c.json({ data: { email, sent: result.sent, ttlMinutes: result.ttlMinutes } });
+  } catch (err: any) {
+    if (err.message === "RESEND_COOLDOWN") {
+      return c.json({ error: `Mohon tunggu ${err.retryAfter} detik sebelum meminta kode baru.` }, 429);
     }
+    console.error("register request-otp error:", err);
+    return c.json({ error: "Gagal mengirim kode OTP. Coba lagi nanti." }, 500);
+  }
+});
+
+// Step 2 of registration: verify the OTP, then create the account.
+app.post("/api/auth/register/verify", async (c) => {
+  const body = await readObjectBody(c);
+  const email = String(body.email || "").trim().toLowerCase();
+  const fullName = String(body.fullName || "");
+  const phone = String(body.phone || "");
+  const password = String(body.password || "");
+  const code = String(body.code || "");
+  const role = body.role === "PSYCHOLOGIST" ? "PSYCHOLOGIST" : "CLIENT";
+
+  if (!email || !fullName || !password || !code) {
+    return c.json({ error: "Data registrasi tidak lengkap" }, 400);
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    return c.json({ error: "Email sudah terdaftar" }, 400);
+  }
+
+  const verification = await verifyOtp(email, "REGISTRATION", code);
+  if (!verification.ok) {
+    return c.json({ error: verification.error }, 400);
+  }
+
+  const user = await prisma.user.create({
+    data: { email, fullName, phone, role, passwordHash: password, isVerified: true }
   });
 
   await logAudit({
@@ -224,6 +257,62 @@ app.post("/api/auth/register", async (c) => {
       avatarUrl: user.avatarUrl || undefined
     }
   }, 201);
+});
+
+// Step 1 of password reset: email an OTP if the account exists.
+app.post("/api/auth/forgot-password", async (c) => {
+  const body = await readObjectBody(c);
+  const email = String(body.email || "").trim().toLowerCase();
+  if (!email) return c.json({ error: "Email wajib diisi" }, 400);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    try {
+      await createAndSendOtp(email, "PASSWORD_RESET");
+    } catch (err: any) {
+      if (err.message === "RESEND_COOLDOWN") {
+        return c.json({ error: `Mohon tunggu ${err.retryAfter} detik sebelum meminta kode baru.` }, 429);
+      }
+      console.error("forgot-password error:", err);
+    }
+  }
+
+  // Generic response to avoid revealing whether an email is registered.
+  return c.json({ data: { message: "Jika email terdaftar, kode OTP telah dikirim ke email tersebut." } });
+});
+
+// Step 2 of password reset: verify the OTP and set the new password.
+app.post("/api/auth/reset-password", async (c) => {
+  const body = await readObjectBody(c);
+  const email = String(body.email || "").trim().toLowerCase();
+  const code = String(body.code || "");
+  const newPassword = String(body.newPassword || body.password || "");
+
+  if (!email || !code || !newPassword) {
+    return c.json({ error: "Data tidak lengkap" }, 400);
+  }
+  if (newPassword.length < 6) {
+    return c.json({ error: "Password minimal 6 karakter" }, 400);
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return c.json({ error: "Akun tidak ditemukan" }, 404);
+
+  const verification = await verifyOtp(email, "PASSWORD_RESET", code);
+  if (!verification.ok) {
+    return c.json({ error: verification.error }, 400);
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newPassword } });
+
+  await logAudit({
+    userId: user.id,
+    action: "PASSWORD_RESET",
+    entityId: user.id,
+    metadata: { email }
+  }).catch((err) => console.error("Audit log error:", err));
+
+  return c.json({ data: { message: "Password berhasil diperbarui. Silakan masuk dengan password baru Anda." } });
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -838,14 +927,29 @@ app.get("/api/sessions/:id/notes", async (c) => {
     }
   }
 
+  const isClient = user?.role === "CLIENT";
+  const chiefComplaint = notes?.chiefComplaint || (isClient ? "" : "kecemasan terkait pekerjaan dan kualitas tidur.");
+  const assessmentObservation = notes?.assessmentObservation || (isClient ? "" : "client kooperatif, insight baik, afek cemas ringan.");
+  const interventions = notes?.interventions || (isClient ? "" : "psikoedukasi, breathing exercise, dan reframing pikiran otomatis.");
+  const followUpPlan = notes?.followUpPlan || (isClient ? "" : "jurnal tidur dan sesi lanjutan 1 minggu.");
+  const recommendations = notes?.recommendations || (isClient ? "" : "Latihan pernapasan 3x sehari.");
+
+  // Tamper-evident verification hash derived from the actual clinical content.
+  // Deterministic: the same record always yields the same hash; any edit changes it.
+  const canonical = [id, chiefComplaint, assessmentObservation, interventions, followUpPlan, recommendations].join("|");
+  const verificationHash = createHash("sha256").update(canonical).digest("hex").toUpperCase();
+
   return c.json({
     data: {
       sessionId: id,
-      chiefComplaint: notes?.chiefComplaint || (user?.role === "CLIENT" ? "" : "kecemasan terkait pekerjaan dan kualitas tidur."),
-      assessmentObservation: notes?.assessmentObservation || (user?.role === "CLIENT" ? "" : "client kooperatif, insight baik, afek cemas ringan."),
-      interventions: notes?.interventions || (user?.role === "CLIENT" ? "" : "psikoedukasi, breathing exercise, dan reframing pikiran otomatis."),
-      followUpPlan: notes?.followUpPlan || (user?.role === "CLIENT" ? "" : "jurnal tidur dan sesi lanjutan 1 minggu."),
-      recommendations: notes?.recommendations || (user?.role === "CLIENT" ? "" : "Latihan pernapasan 3x sehari."),
+      chiefComplaint,
+      assessmentObservation,
+      interventions,
+      followUpPlan,
+      recommendations,
+      docId: `BTN-CN-${id.slice(0, 8).toUpperCase()}`,
+      sessionRef: id.slice(0, 8).toUpperCase(),
+      verificationHash,
       exists: !!notes,
       isSentToClient: notes?.isSentToClient ?? false
     }
@@ -896,6 +1000,60 @@ app.post("/api/sessions/:id/notes/send", async (c) => {
 });
 
 app.get("/api/sessions/:id/notes/download", (c) => c.json({ data: generateCounselingNotesPdf(c.req.param("id")) }));
+
+// Real, downloadable counseling-notes PDF.
+app.get("/api/sessions/:id/notes/pdf", async (c) => {
+  const id = c.req.param("id");
+  const userId = c.req.header("x-user-id");
+  const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+  const isClient = user?.role === "CLIENT";
+
+  const [notes, session] = await Promise.all([
+    prisma.sessionNotes.findUnique({ where: { sessionId: id } }),
+    prisma.session.findUnique({
+      where: { id },
+      include: { client: true, psychologist: { include: { user: true } } }
+    })
+  ]);
+
+  // Clients may only download notes that have been shared with them.
+  if (isClient && (!notes || !notes.isSentToClient)) {
+    return c.json({ error: "Catatan belum dibagikan atau dikirim oleh psikolog." }, 400);
+  }
+
+  const chiefComplaint = notes?.chiefComplaint || (isClient ? "" : "kecemasan terkait pekerjaan dan kualitas tidur.");
+  const assessmentObservation = notes?.assessmentObservation || (isClient ? "" : "client kooperatif, insight baik, afek cemas ringan.");
+  const interventions = notes?.interventions || (isClient ? "" : "psikoedukasi, breathing exercise, dan reframing pikiran otomatis.");
+  const followUpPlan = notes?.followUpPlan || (isClient ? "" : "jurnal tidur dan sesi lanjutan 1 minggu.");
+  const recommendations = notes?.recommendations || (isClient ? "" : "Latihan pernapasan 3x sehari.");
+
+  const canonical = [id, chiefComplaint, assessmentObservation, interventions, followUpPlan, recommendations].join("|");
+  const verificationHash = createHash("sha256").update(canonical).digest("hex").toUpperCase();
+
+  const sessionTypeLabel =
+    session?.sessionType === "OFFLINE" ? "Tatap Muka (Offline)" :
+    session?.sessionType === "ONLINE" ? "Online Video Call" :
+    "Konseling";
+
+  const pdf = await buildCounselingNotesPdf({
+    sessionRef: id.slice(0, 8).toUpperCase(),
+    docId: `BTN-CN-${id.slice(0, 8).toUpperCase()}`,
+    verificationHash,
+    psychologistName: session?.psychologist?.user?.fullName || "Psikolog Batin",
+    clientName: session?.client?.fullName || "Klien Batin",
+    scheduledAt: session?.scheduledAt || null,
+    sessionTypeLabel,
+    chiefComplaint,
+    assessmentObservation,
+    interventions,
+    followUpPlan,
+    recommendations
+  });
+
+  c.header("Content-Type", "application/pdf");
+  c.header("Content-Disposition", `attachment; filename="catatan-konseling-${id.slice(0, 8).toUpperCase()}.pdf"`);
+  return c.body(new Uint8Array(pdf));
+});
 
 app.get("/api/psychologist/profile", async (c) => {
   const userId = c.req.header("x-user-id");

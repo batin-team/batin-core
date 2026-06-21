@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { UserPlus } from "lucide-react";
+import { UserPlus, MailCheck, ArrowLeft } from "lucide-react";
 import { Footer } from "../../components/Footer";
 import { NavBar } from "../../components/NavBar";
 
@@ -11,25 +11,65 @@ import { apiFetch } from "../../lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [step, setStep] = useState<"form" | "otp">("form");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleRequestOtp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setInfo("");
+    setIsSubmitting(true);
     try {
-      const res = await apiFetch("/api/auth/register", {
+      await apiFetch("/api/auth/register/request-otp", {
         method: "POST",
         body: JSON.stringify({ fullName, email, phone, password })
       });
+      setStep("otp");
+      setInfo(`Kode OTP telah dikirim ke ${email}. Periksa kotak masuk (atau folder spam) Anda.`);
+    } catch (err: any) {
+      setError(err.message || "Gagal mengirim kode OTP, coba lagi nanti.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleVerify(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const res = await apiFetch("/api/auth/register/verify", {
+        method: "POST",
+        body: JSON.stringify({ fullName, email, phone, password, code: otp })
+      });
       localStorage.setItem("mindbridge_user", JSON.stringify(res.user));
-      router.push("/booking");
+      router.push("/dashboard/client");
       router.refresh();
     } catch (err: any) {
-      setError(err.message || "Pendaftaran gagal, coba lagi nanti.");
+      setError(err.message || "Verifikasi gagal, coba lagi.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResend() {
+    setError("");
+    setInfo("");
+    try {
+      await apiFetch("/api/auth/register/request-otp", {
+        method: "POST",
+        body: JSON.stringify({ fullName, email, phone, password })
+      });
+      setInfo(`Kode OTP baru telah dikirim ke ${email}.`);
+    } catch (err: any) {
+      setError(err.message || "Gagal mengirim ulang kode OTP.");
     }
   }
 
@@ -123,16 +163,20 @@ export default function RegisterPage() {
 
           {/* Right Side: Registration Form */}
           <div style={{ padding: "56px", display: "flex", flexDirection: "column", justifyContent: "center", backgroundColor: "#FFFFFF" }}>
-            <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0F172A", marginBottom: 8, letterSpacing: "-0.5px" }}>Buat Akun Baru</h2>
-            <p style={{ color: "#64748B", fontSize: 14, marginBottom: 28, fontWeight: 500 }}>Mulai pemesanan konseling Anda sekarang.</p>
+            <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0F172A", marginBottom: 8, letterSpacing: "-0.5px" }}>
+              {step === "form" ? "Buat Akun Baru" : "Verifikasi Email"}
+            </h2>
+            <p style={{ color: "#64748B", fontSize: 14, marginBottom: 28, fontWeight: 500 }}>
+              {step === "form" ? "Mulai pemesanan konseling Anda sekarang." : "Masukkan 6 digit kode OTP yang kami kirim ke email Anda."}
+            </p>
 
             {error && (
-              <div className="badge warning" style={{ 
-                borderRadius: 10, 
-                padding: "12px 16px", 
-                justifyContent: "center", 
-                width: "100%", 
-                marginBottom: 20, 
+              <div className="badge warning" style={{
+                borderRadius: 10,
+                padding: "12px 16px",
+                justifyContent: "center",
+                width: "100%",
+                marginBottom: 20,
                 fontSize: 13,
                 fontWeight: 700
               }}>
@@ -140,28 +184,66 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: "grid", gap: 20 }}>
-              <div className="field">
-                <label htmlFor="fullName" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Nama Lengkap</label>
-                <input className="input" id="fullName" placeholder="Masukkan nama lengkap Anda" value={fullName} onChange={(event) => setFullName(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
+            {info && (
+              <div style={{ borderRadius: 10, padding: "12px 16px", width: "100%", marginBottom: 20, fontSize: 13, fontWeight: 700, backgroundColor: "#EFF6FF", color: "#1D4ED8", display: "flex", alignItems: "center", gap: 8 }}>
+                <MailCheck size={16} /> {info}
               </div>
-              <div className="field">
-                <label htmlFor="email" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Email</label>
-                <input className="input" id="email" type="email" placeholder="contoh@email.com" value={email} onChange={(event) => setEmail(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
-              </div>
-              <div className="field">
-                <label htmlFor="phone" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Nomor HP</label>
-                <input className="input" id="phone" placeholder="08xxxxxxxxxx" value={phone} onChange={(event) => setPhone(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
-              </div>
-              <div className="field">
-                <label htmlFor="password" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Password</label>
-                <input className="input" id="password" type="password" placeholder="Minimal 6 karakter" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} style={{ borderRadius: 8, padding: "12px 14px" }} />
-              </div>
-              
-              <button className="button button-primary" type="submit" style={{ borderRadius: 8, minHeight: 48, fontSize: 15, fontWeight: 700, backgroundColor: "#2563EB", display: "flex", gap: 8, justifyContent: "center", marginTop: 8 }}>
-                <UserPlus size={18} /> Daftar & Mulai Booking
-              </button>
-            </form>
+            )}
+
+            {step === "form" ? (
+              <form onSubmit={handleRequestOtp} style={{ display: "grid", gap: 20 }}>
+                <div className="field">
+                  <label htmlFor="fullName" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Nama Lengkap</label>
+                  <input className="input" id="fullName" placeholder="Masukkan nama lengkap Anda" value={fullName} onChange={(event) => setFullName(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
+                </div>
+                <div className="field">
+                  <label htmlFor="email" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Email</label>
+                  <input className="input" id="email" type="email" placeholder="contoh@email.com" value={email} onChange={(event) => setEmail(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
+                </div>
+                <div className="field">
+                  <label htmlFor="phone" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Nomor HP</label>
+                  <input className="input" id="phone" placeholder="08xxxxxxxxxx" value={phone} onChange={(event) => setPhone(event.target.value)} required style={{ borderRadius: 8, padding: "12px 14px" }} />
+                </div>
+                <div className="field">
+                  <label htmlFor="password" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Password</label>
+                  <input className="input" id="password" type="password" placeholder="Minimal 6 karakter" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} style={{ borderRadius: 8, padding: "12px 14px" }} />
+                </div>
+
+                <button className="button button-primary" type="submit" disabled={isSubmitting} style={{ borderRadius: 8, minHeight: 48, fontSize: 15, fontWeight: 700, backgroundColor: "#2563EB", display: "flex", gap: 8, justifyContent: "center", marginTop: 8, opacity: isSubmitting ? 0.7 : 1 }}>
+                  <UserPlus size={18} /> {isSubmitting ? "Mengirim kode..." : "Daftar & Kirim OTP"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerify} style={{ display: "grid", gap: 20 }}>
+                <div className="field">
+                  <label htmlFor="otp" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Kode OTP</label>
+                  <input
+                    className="input"
+                    id="otp"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={otp}
+                    onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))}
+                    required
+                    style={{ borderRadius: 8, padding: "12px 14px", letterSpacing: 8, textAlign: "center", fontSize: 22, fontWeight: 800 }}
+                  />
+                </div>
+
+                <button className="button button-primary" type="submit" disabled={isSubmitting || otp.length < 6} style={{ borderRadius: 8, minHeight: 48, fontSize: 15, fontWeight: 700, backgroundColor: "#2563EB", display: "flex", gap: 8, justifyContent: "center", opacity: (isSubmitting || otp.length < 6) ? 0.7 : 1 }}>
+                  <MailCheck size={18} /> {isSubmitting ? "Memverifikasi..." : "Verifikasi & Buat Akun"}
+                </button>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <button type="button" onClick={() => { setStep("form"); setError(""); setInfo(""); setOtp(""); }} style={{ background: "none", border: "none", color: "#64748B", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: 0 }}>
+                    <ArrowLeft size={14} /> Ubah data
+                  </button>
+                  <button type="button" onClick={handleResend} style={{ background: "none", border: "none", color: "#2563EB", fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                    Kirim ulang kode
+                  </button>
+                </div>
+              </form>
+            )}
 
             <p style={{ marginTop: 28, fontSize: 14, color: "#64748B", textAlign: "center", fontWeight: 500 }}>
               Sudah punya akun? <Link style={{ color: "#2563EB", fontWeight: 700, textDecoration: "none" }} href="/login">Masuk</Link>

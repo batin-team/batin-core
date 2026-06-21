@@ -69,7 +69,7 @@ export function LoginForm() {
         } else if (res.user.role === "ADMIN") {
           redirectUrl = "/dashboard/admin";
         } else {
-          redirectUrl = "/booking";
+          redirectUrl = "/dashboard/client";
         }
       }
 
@@ -106,6 +106,11 @@ export function LoginForm() {
         <div className="field">
           <label htmlFor="password" style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>Password</label>
           <input className="input" id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required style={{ borderRadius: 8 }} />
+          <div style={{ textAlign: "right", marginTop: 6 }}>
+            <Link href="/forgot-password" style={{ fontSize: 12, color: "#2563EB", fontWeight: 700, textDecoration: "none" }}>
+              Lupa password?
+            </Link>
+          </div>
         </div>
 
         {/* Role Segmented Selector matching Mockup */}

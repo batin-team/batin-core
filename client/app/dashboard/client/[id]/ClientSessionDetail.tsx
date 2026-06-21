@@ -162,146 +162,199 @@ export function ClientSessionDetail({ id }: { id: string }) {
   }
 
   return (
-    <section className="dashboard-grid">
-      <div className="panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <section className="dashboard-grid" style={{ display: "grid", gap: 24 }}>
+      {/* Left Card: Sesi Konseling */}
+      <div className="panel" style={{ display: "flex", flexDirection: "column", gap: 20, padding: 28 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
           <div>
-            <h1 style={{ fontSize: 32, marginBottom: 4 }}>Sesi Konseling</h1>
-            <span style={{ fontSize: 14, opacity: 0.5, fontFamily: "monospace", letterSpacing: 1 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--primary)", margin: "0 0 4px 0", fontFamily: "var(--font-playfair)" }}>Sesi Konseling</h1>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)", fontFamily: "monospace" }}>
               #{session.id.split("-")[0].toUpperCase()}
             </span>
           </div>
-          <span className={session.status === "CONFIRMED" ? "badge success" : "badge warning"} style={{ padding: "6px 14px", fontSize: 13 }}>
+          <span 
+            className="badge warning" 
+            style={{ 
+              backgroundColor: "rgba(244, 162, 97, 0.15)", 
+              color: "#D97706", 
+              padding: "6px 14px", 
+              fontSize: 11, 
+              fontWeight: 800,
+              borderRadius: 9999,
+              textTransform: "uppercase"
+            }}
+          >
             {session.status}
           </span>
         </div>
 
-        <div className="muted-box" style={{ display: "flex", gap: 16, alignItems: "center", padding: 20 }}>
-          <div className="avatar" style={{ width: 64, height: 64, flexShrink: 0, backgroundColor: "var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {/* Psychologist Profile Box */}
+        <div className="muted-box" style={{ display: "flex", gap: 16, alignItems: "center", padding: "16px 20px", backgroundColor: "#F8FAFC", borderRadius: 12, border: "1px solid var(--border)" }}>
+          <div style={{ width: 56, height: 56, borderRadius: 12, overflow: "hidden", flexShrink: 0, backgroundColor: "#E2E8F0" }}>
             {session.psychologistAvatar ? (
               <img alt={session.psychologistName} src={session.psychologistAvatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             ) : (
-              <span style={{ opacity: 0.4 }}>?</span>
+              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--primary-fixed)", color: "var(--primary)", fontWeight: 700 }}>
+                {session.psychologistName ? session.psychologistName[0].toUpperCase() : "?"}
+              </div>
             )}
           </div>
           <div>
-            <h3 style={{ fontSize: 22, marginBottom: 4 }}>{session.psychologistName}</h3>
-            <p style={{ opacity: 0.7, fontSize: 15 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 4px 0" }}>{session.psychologistName}</h3>
+            <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: 0 }}>
               {session.clientName ? `Sesi untuk ${session.clientName}` : session.psychologistTitle}
             </p>
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
-          <div className="muted-box" style={{ padding: 16 }}>
-            <span style={{ fontSize: 12, opacity: 0.6, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>Jadwal</span>
-            <p style={{ fontWeight: 500, marginTop: 8, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-              <Calendar size={18} opacity={0.7} />
-              {new Date(session.scheduledAt).toLocaleString("id-ID", { dateStyle: "long", timeStyle: "short" })} WIB
-            </p>
+        {/* Schedule & Price Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {/* Jadwal */}
+          <div>
+            <span style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.5px" }}>Jadwal</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <Calendar size={16} color="var(--text-secondary)" />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                {new Date(session.scheduledAt).toLocaleString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} pukul {new Date(session.scheduledAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB
+              </span>
+            </div>
           </div>
-          <div className="muted-box" style={{ padding: 16 }}>
-            <span style={{ fontSize: 12, opacity: 0.6, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>Biaya Sesi</span>
-            <p style={{ fontWeight: 500, marginTop: 8, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-              <CreditCard size={18} opacity={0.7} />
-              {formatCurrency(session.amount)}
-            </p>
+          
+          {/* Biaya Sesi */}
+          <div>
+            <span style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.5px" }}>Biaya Sesi</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <CreditCard size={16} color="var(--text-secondary)" />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                Rp {session.amount.toLocaleString("id-ID")}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="muted-box" style={{ padding: 16 }}>
-          <span style={{ fontSize: 12, opacity: 0.6, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>
+        {/* Google Meet Link Box */}
+        <div style={{ 
+          backgroundColor: "#EFF6FF", 
+          border: "1px solid #DBEAFE", 
+          borderRadius: 12, 
+          padding: "16px 20px" 
+        }}>
+          <span style={{ fontSize: 10, color: "#1D4ED8", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.5px" }}>
             {session.sessionType === "ONLINE" ? "Link Google Meet" : "Lokasi Pertemuan"}
           </span>
-          <div style={{ marginTop: 8, fontSize: 15, fontWeight: 500, display: "flex", alignItems: "flex-start", gap: 8, wordBreak: "break-all" }}>
-            {session.sessionType === "ONLINE" ? <Video size={18} opacity={0.7} style={{ flexShrink: 0, marginTop: 2 }} /> : <MapPin size={18} opacity={0.7} style={{ flexShrink: 0, marginTop: 2 }} />}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
             {session.sessionType === "ONLINE" ? (
-              <a href={session.meetUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", textDecoration: "underline" }}>
-                {session.meetUrl || "Link belum tersedia"}
-              </a>
+              <>
+                <Video size={16} color="#1D4ED8" style={{ flexShrink: 0 }} />
+                <a 
+                  href={session.meetUrl} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  style={{ color: "#1D4ED8", fontSize: 13, fontWeight: 600, textDecoration: "underline", wordBreak: "break-all" }}
+                >
+                  {session.meetUrl || "Link belum tersedia"}
+                </a>
+              </>
             ) : (
-              <span>{session.location || "Lokasi belum ditentukan"}</span>
+              <>
+                <MapPin size={16} color="#1D4ED8" style={{ flexShrink: 0 }} />
+                <span style={{ color: "#1E293B", fontSize: 13, fontWeight: 600 }}>
+                  {session.location || "Lokasi belum ditentukan"}
+                </span>
+              </>
             )}
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
+        {/* Buttons Bar */}
+        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
           {session.status === "PENDING_PAYMENT" ? (
             <>
               <button 
                 className="button button-primary" 
                 onClick={handlePayNow} 
-                style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: 700 }}
               >
-                <CreditCard size={18} /> Bayar Sekarang
+                <CreditCard size={16} /> Bayar Sekarang
               </button>
-              <Link className="button button-secondary" href={`/receipt?id=${session.id}`}>
-                <Download size={18} /> Unduh Kwitansi
+              <Link 
+                className="button button-secondary" 
+                href={`/receipt?id=${session.id}`}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+              >
+                <Download size={16} /> Unduh Kwitansi
               </Link>
             </>
           ) : (
-            <Link className="button button-primary" href={`/receipt?id=${session.id}`}>
-              <Download size={18} /> Unduh Kwitansi
+            <Link 
+              className="button button-primary" 
+              href={`/receipt?id=${session.id}`}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              <Download size={16} /> Unduh Kwitansi
             </Link>
           )}
           {session.hasNotes ? (
-            <Link className="button button-secondary" href={`/notes-preview?id=${session.id}`}>
-              <FileText size={18} /> Lihat Catatan
+            <Link 
+              className="button button-secondary" 
+              href={`/notes-preview?id=${session.id}`}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              <FileText size={16} /> Lihat Catatan
             </Link>
           ) : (
             <button
               className="button button-secondary"
               disabled
-              style={{ opacity: 0.5, cursor: "not-allowed", display: "flex", alignItems: "center", gap: 8 }}
+              style={{ flex: 1, opacity: 0.5, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
               title="Catatan belum dipublikasikan oleh psikolog"
             >
-              <FileText size={18} /> Lihat Catatan
+              <FileText size={16} /> Lihat Catatan
             </button>
           )}
         </div>
-
       </div>
 
+      {/* Right Card: Ulasan */}
       {session.status === "COMPLETED" ? (
         submittedReview ? (
-          <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16, padding: 28 }}>
             <div>
-              <h2 style={{ fontSize: 28, marginBottom: 4 }}>Ulasan Anda</h2>
-              <p style={{ opacity: 0.7 }}>Terima kasih telah memberikan ulasan untuk sesi ini.</p>
+              <h2 style={{ fontSize: 24, fontWeight: 700, color: "var(--primary)", marginBottom: 4, fontFamily: "var(--font-playfair)" }}>Ulasan Anda</h2>
+              <p style={{ opacity: 0.7, fontSize: 13 }}>Terima kasih telah memberikan ulasan untuk sesi ini.</p>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4, margin: "8px 0" }}>
               {[...Array(5)].map((_, i) => (
                 <Star
                   key={i}
-                  size={20}
+                  size={18}
                   fill={i < submittedReview.rating ? "#F59E0B" : "transparent"}
                   color="#F59E0B"
                 />
               ))}
             </div>
-            <p style={{ fontSize: 15, fontStyle: "italic", color: "#475569", backgroundColor: "#F8FAFC", padding: "14px 18px", borderRadius: 12, border: "1px solid #E2E8F0", lineHeight: 1.5 }}>
+            <p style={{ fontSize: 14, fontStyle: "italic", color: "#475569", backgroundColor: "#F8FAFC", padding: "14px 18px", borderRadius: 12, border: "1px solid #E2E8F0", lineHeight: 1.5 }}>
               &ldquo;{submittedReview.comment || "Tidak ada komentar tambahan."}&rdquo;
             </p>
           </aside>
         ) : (
-          <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16, padding: 28 }}>
             <div>
-              <h2 style={{ fontSize: 28, marginBottom: 4 }}>Ulasan</h2>
-              <p style={{ opacity: 0.7 }}>Bagikan pengalaman Anda setelah sesi selesai.</p>
+              <h2 style={{ fontSize: 24, fontWeight: 700, color: "var(--primary)", marginBottom: 4, fontFamily: "var(--font-playfair)" }}>Ulasan</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>Bagikan pengalaman Anda setelah sesi selesai.</p>
             </div>
 
             {submitMessage && (
-              <div className="badge warning" style={{ borderRadius: 8, padding: 10, justifyContent: "center", width: "100%", fontSize: 13 }}>
+              <div className="badge warning" style={{ borderRadius: 8, padding: 10, justifyContent: "center", width: "100%", fontSize: 12 }}>
                 {submitMessage}
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
               {[1, 2, 3, 4, 5].map((item) => {
                 const isSelected = userRating === item;
                 return (
                   <button
-                    className="chip-button"
                     key={item}
                     type="button"
                     onClick={() => setUserRating(item)}
@@ -309,42 +362,46 @@ export function ClientSessionDetail({ id }: { id: string }) {
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      padding: "8px 16px",
-                      borderRadius: 12,
-                      border: isSelected ? "2px solid #2563EB" : "1px solid #E2E8F0",
-                      backgroundColor: isSelected ? "#F0F7FF" : "#FFFFFF",
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: isSelected ? "1.5px solid #F59E0B" : "1px solid #E2E8F0",
+                      backgroundColor: isSelected ? "#FEF3C7" : "#FFFFFF",
+                      color: isSelected ? "#B45309" : "#64748B",
                       cursor: "pointer",
-                      fontWeight: isSelected ? 700 : 500,
-                      transition: "all 0.2s"
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: 13,
+                      transition: "all 0.15s ease"
                     }}
                   >
-                    <Star size={16} fill="#F59E0B" color="#F59E0B" /> {item}
+                    <Star size={14} fill="#F59E0B" color="#F59E0B" /> {item}
                   </button>
                 );
               })}
             </div>
+            
             <textarea
               className="textarea"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Ceritakan bagaimana sesi ini membantu Anda..."
-              style={{ minHeight: 120, resize: "vertical", borderRadius: 10, padding: 12 }}
+              style={{ minHeight: 120, resize: "vertical", borderRadius: 8, padding: 12, border: "1px solid var(--border)", fontSize: 14, marginBottom: 12 }}
             />
+            
             <button
               className="button button-primary"
               onClick={handleSendReview}
               disabled={isSubmitting}
-              style={{ marginTop: "auto", minHeight: 44, borderRadius: 10, backgroundColor: "#2563EB", fontWeight: 700 }}
+              style={{ width: "100%", minHeight: 44, borderRadius: 8, fontWeight: 700 }}
             >
               {isSubmitting ? "Mengirim..." : "Kirim Ulasan"}
             </button>
           </aside>
         )
       ) : (
-        <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <aside className="panel" style={{ display: "flex", flexDirection: "column", gap: 16, padding: 28 }}>
           <div>
-            <h2 style={{ fontSize: 28, marginBottom: 4 }}>Ulasan</h2>
-            <p style={{ opacity: 0.7 }}>Ulasan dapat diberikan setelah sesi selesai terlaksana.</p>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: "var(--primary)", marginBottom: 4, fontFamily: "var(--font-playfair)" }}>Ulasan</h2>
+            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>Ulasan dapat diberikan setelah sesi selesai terlaksana.</p>
           </div>
         </aside>
       )}

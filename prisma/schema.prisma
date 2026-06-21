@@ -347,6 +347,21 @@ model PlatformSetting {
   value String
 }
 
+// One-time passwords for email verification (registration) and password reset.
+model OtpCode {
+  id         String    @id @default(uuid())
+  email      String
+  codeHash   String    @map("code_hash")
+  purpose    String    // "REGISTRATION" | "PASSWORD_RESET"
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([email, purpose])
+  @@map("otp_codes")
+}
+
 // Per-psychologist wallet ledger. Balance = sum(amount). Credits are positive,
 // debits are negative, so the running balance never needs to be stored.
 model WalletEntry {
